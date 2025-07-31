@@ -196,3 +196,8 @@ spotless-index
 
 .editorconfig
 AGENT.md
+
+# Ignore all build directories and files
+/build/
+/target/
+.gradle/

@@ -6,11 +6,11 @@ This application was generated using [start.vertx.io](http://start.vertx.io)
 
 ## Build, Lint, and Test
 
-- **Build:** `./mvnw clean package`
-- **Lint/Format:** `./mvnw spotless:check` (check), `./mvnw spotless:apply` (auto-format)
-- **Test (all):** `./mvnw clean test`
-- **Test (single):** `./mvnw -Dtest=ClassName#methodName test`
-- **Run app:** `./mvnw clean compile exec:java`
+- **Build:** `./gradlew build`
+- **Lint/Format:** `./gradlew spotlessCheck` (check), `./gradlew spotlessApply` (auto-format)
+- **Test (all):** `./gradlew test`
+- **Test (single):** `./gradlew test --tests ClassName.methodName`
+- **Run app:** `./gradlew run`
 
 ## Project Structure & Architecture
 
@@ -23,6 +23,13 @@ This application was generated using [start.vertx.io](http://start.vertx.io)
 - **Error Handling:** `web.errors.ErrorHandler.java`
 - **Tests:** `src/test/java/com/github/kaivu/vertx_web/`
 - **No database configured by default** (stubbed data in services)
+
+## Build & Project Setup
+
+- **Build Tool:** Gradle 9.0
+- **Configuration:** `gradle.properties` for project properties
+- **Repositories:** Ensure `repositories` block is present in `build.gradle` for dependencies
+- **Main Class:** Use `application { mainClass = ... }` in `build.gradle` (not `mainClassName`)
 
 ## Code Style & Conventions
 
