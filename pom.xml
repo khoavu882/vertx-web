@@ -12,17 +12,19 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 
     <maven-compiler-plugin.version>3.12.1</maven-compiler-plugin.version>
-    <maven-shade-plugin.version>3.6.0</maven-shade-plugin.version>
+    <maven-shade-plugin.version>3.2.4</maven-shade-plugin.version>
     <maven-surefire-plugin.version>3.3.1</maven-surefire-plugin.version>
     <exec-maven-plugin.version>3.0.0</exec-maven-plugin.version>
 
+    <commons-net.version>3.11.1</commons-net.version>
+    <logback.version>1.5.13</logback.version>
     <mutiny-reactive.version>2.6.2</mutiny-reactive.version>
+    <slf4j.version>1.7.30</slf4j.version>
+    <spotless.version>2.44.0</spotless.version>
     <vertx.version>4.5.14</vertx.version>
     <google-guice.version>7.0.0</google-guice.version>
     <junit-jupiter.version>5.9.1</junit-jupiter.version>
     <lombok.version>1.18.32</lombok.version>
-    <palantir.version>2.47.0</palantir.version>
-    <spotless.version>2.43.0</spotless.version>
 
     <main.verticle>com.github.kaivu.vertx_web.AppVerticle</main.verticle>
     <launcher.class>io.vertx.core.Launcher</launcher.class>
@@ -42,12 +44,22 @@
 
   <dependencies>
     <dependency>
+      <groupId>commons-net</groupId>
+      <artifactId>commons-net</artifactId>
+      <version>${commons-net.version}</version>
+    </dependency>
+    <dependency>
       <groupId>io.vertx</groupId>
       <artifactId>vertx-core</artifactId>
     </dependency>
     <dependency>
       <groupId>io.vertx</groupId>
       <artifactId>vertx-web</artifactId>
+    </dependency>
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>log4j-over-slf4j</artifactId>
+      <version>${slf4j.version}</version>
     </dependency>
     <dependency>
       <groupId>io.smallrye.reactive</groupId>
@@ -64,6 +76,11 @@
       <artifactId>lombok</artifactId>
       <version>${lombok.version}</version>
       <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>ch.qos.logback</groupId>
+      <artifactId>logback-classic</artifactId>
+      <version>${logback.version}</version>
     </dependency>
 
     <dependency>
@@ -111,7 +128,7 @@
       </plugin>
       <plugin>
         <artifactId>maven-shade-plugin</artifactId>
-        <version>${maven-shade-plugin.version}</version>
+        <version>3.2.4</version>
         <executions>
           <execution>
             <phase>package</phase>
@@ -140,30 +157,6 @@
         <version>${maven-surefire-plugin.version}</version>
       </plugin>
       <plugin>
-        <groupId>com.diffplug.spotless</groupId>
-        <artifactId>spotless-maven-plugin</artifactId>
-        <version>${spotless.version}</version>
-        <executions>
-          <execution>
-            <phase>test</phase>
-            <goals>
-              <goal>check</goal>
-            </goals>
-          </execution>
-        </executions>
-        <configuration>
-          <java>
-            <palantirJavaFormat>
-              <version>${palantir.version}</version>
-            </palantirJavaFormat>
-            <importOrder>
-              <order>,java|javax,\#</order>
-            </importOrder>
-            <removeUnusedImports/>
-          </java>
-        </configuration>
-      </plugin>
-      <plugin>
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>exec-maven-plugin</artifactId>
         <version>${exec-maven-plugin.version}</version>
@@ -174,6 +167,25 @@
             <argument>${main.verticle}</argument>
           </arguments>
         </configuration>
+      </plugin>
+      <!-- Spotless plugin for code formatting -->
+      <plugin>
+        <groupId>com.diffplug.spotless</groupId>
+        <artifactId>spotless-maven-plugin</artifactId>
+        <version>${spotless.version}</version>
+        <configuration>
+          <java>
+            <palantirJavaFormat/>
+          </java>
+        </configuration>
+        <executions>
+          <execution>
+            <goals>
+              <goal>check</goal>
+              <goal>apply</goal>
+            </goals>
+          </execution>
+        </executions>
       </plugin>
     </plugins>
   </build>

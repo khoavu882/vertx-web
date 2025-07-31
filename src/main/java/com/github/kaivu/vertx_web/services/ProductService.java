@@ -1,5 +1,6 @@
 package com.github.kaivu.vertx_web.services;
 
+import com.github.kaivu.vertx_web.web.exceptions.ServiceException;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import io.smallrye.mutiny.Uni;
@@ -28,8 +29,13 @@ public class ProductService {
     }
 
     public Uni<JsonObject> getProductById(String productId) {
-        // Simulate async operation
+        if (productId == null || productId.isBlank()) {
+            throw new ServiceException("Product ID must not be empty", 400);
+        }
+        if (!"1".equals(productId)) {
+            throw new ServiceException("Product not found", 404);
+        }
         return Uni.createFrom()
-                .item(new JsonObject().put("productId", productId).put("name", "Widget")); // Example JSON response
+                .item(new JsonObject().put("productId", productId).put("name", "Widget"));
     }
 }

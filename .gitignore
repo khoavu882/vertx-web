@@ -183,3 +183,16 @@ nbdist/
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
+
+# Spotless
+spotless-index
+
+# Maven target directory
+/target/
+
+# IntelliJ IDEA
+*.iml
+.idea/
+
+.editorconfig
+AGENT.md

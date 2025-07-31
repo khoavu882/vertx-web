@@ -11,11 +11,8 @@ public class WorkerVerticle extends AbstractVerticle {
         EventBus eventBus = vertx.eventBus();
 
         // Register handlers for potentially blocking operations
+        // Example , database operations, file I/O, etc.
         eventBus.<String>consumer("app.worker.operation", message -> {
-            // Execute blocking operations here
-            // For example, database operations, file I/O, etc.
-
-            // Send back the result
             message.reply("Operation completed");
         });
 

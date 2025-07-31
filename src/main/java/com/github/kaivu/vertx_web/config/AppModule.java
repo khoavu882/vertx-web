@@ -1,5 +1,7 @@
 package com.github.kaivu.vertx_web.config;
 
+import com.github.kaivu.vertx_web.services.ProductService;
+import com.github.kaivu.vertx_web.services.UserService;
 import com.github.kaivu.vertx_web.web.rests.CommonRouter;
 import com.github.kaivu.vertx_web.web.rests.ProductRouter;
 import com.github.kaivu.vertx_web.web.rests.UserRouter;
@@ -35,19 +37,31 @@ public class AppModule extends AbstractModule {
 
     @Provides
     @Singleton
+    UserService provideUserService(Vertx vertx) {
+        return new UserService(vertx);
+    }
+
+    @Provides
+    @Singleton
+    ProductService provideProductService(Vertx vertx) {
+        return new ProductService(vertx);
+    }
+
+    @Provides
+    @Singleton
     CommonRouter provideCommonRouter(Vertx vertx) {
         return new CommonRouter(vertx);
     }
 
     @Provides
     @Singleton
-    UserRouter provideUserRouter(Vertx vertx) {
-        return new UserRouter(vertx);
+    UserRouter provideUserRouter(Vertx vertx, UserService userService) {
+        return new UserRouter(vertx, userService);
     }
 
     @Provides
     @Singleton
-    ProductRouter provideProductRouter(Vertx vertx) {
-        return new ProductRouter(vertx);
+    ProductRouter provideProductRouter(Vertx vertx, ProductService productService) {
+        return new ProductRouter(vertx, productService);
     }
 }

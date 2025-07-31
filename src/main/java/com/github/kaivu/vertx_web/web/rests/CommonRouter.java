@@ -1,5 +1,6 @@
 package com.github.kaivu.vertx_web.web.rests;
 
+import com.github.kaivu.vertx_web.constants.AppConstants;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import io.vertx.core.Vertx;
@@ -9,21 +10,22 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.handler.CorsHandler;
-
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
+import lombok.Getter;
 
 @Singleton
 public class CommonRouter {
-    private static final String CONTENT_TYPE = "application/json";
-    private static final int HTTP_OK = 200;
-    private static final int HTTP_INTERNAL_ERROR = 500;
+    private static final String CONTENT_TYPE = AppConstants.Http.CONTENT_TYPE_JSON;
+    private static final int HTTP_OK = AppConstants.Status.OK;
+    private static final int HTTP_INTERNAL_ERROR = AppConstants.Status.INTERNAL_SERVER_ERROR;
     private static final Set<String> ALLOWED_HEADERS =
             new HashSet<>(Arrays.asList(HttpHeaders.CONTENT_TYPE.toString(), HttpHeaders.AUTHORIZATION.toString()));
     private static final Set<HttpMethod> ALLOWED_METHODS = new HashSet<>(
             Arrays.asList(HttpMethod.GET, HttpMethod.POST, HttpMethod.PUT, HttpMethod.DELETE, HttpMethod.OPTIONS));
 
+    @Getter
     private final Router router;
 
     @Inject
@@ -72,9 +74,5 @@ public class CommonRouter {
                 .putHeader(HttpHeaders.CONTENT_TYPE, CONTENT_TYPE)
                 .putHeader(HttpHeaders.CACHE_CONTROL, "no-cache")
                 .end(response.encode());
-    }
-
-    public Router getRouter() {
-        return router;
     }
 }

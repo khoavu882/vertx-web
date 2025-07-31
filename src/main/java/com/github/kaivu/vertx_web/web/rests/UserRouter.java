@@ -1,24 +1,33 @@
 package com.github.kaivu.vertx_web.web.rests;
 
+import com.github.kaivu.vertx_web.constants.AppConstants;
+import com.github.kaivu.vertx_web.services.UserService;
+import com.github.kaivu.vertx_web.web.exceptions.ServiceException;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpHeaders;
-import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
 import io.vertx.ext.web.handler.BodyHandler;
+import lombok.Getter;
 
 @Singleton
 public class UserRouter {
+
+    private static final String CONTENT_TYPE = AppConstants.Http.CONTENT_TYPE_JSON;
+    private static final String CHARSET = AppConstants.Http.CHARSET_UTF8;
+
+    @Getter
     private final Router router;
-    private static final String CONTENT_TYPE = "application/json";
-    private static final String CHARSET = "charset=utf-8";
+
+    private final UserService userService;
 
     @Inject
-    public UserRouter(Vertx vertx) {
+    public UserRouter(Vertx vertx, UserService userService) {
         this.router = Router.router(vertx);
+        this.userService = userService;
         setupRoutes();
     }
 
@@ -32,135 +41,98 @@ public class UserRouter {
         router.post("/api/users").handler(this::createUser);
         router.put("/api/users/:id").handler(this::updateUser);
         router.delete("/api/users/:id").handler(this::deleteUser);
-
-        // Global error handler
-        router.route().failureHandler(this::handleError);
     }
 
     private void getAllUsers(RoutingContext ctx) {
-        try {
-            JsonArray users = new JsonArray()
-                    .add(new JsonObject().put("id", 1).put("name", "John Doe").put("email", "john@example.com"))
-                    .add(new JsonObject().put("id", 2).put("name", "Jane Doe").put("email", "jane@example.com"));
-
-            sendResponse(ctx, 200, new JsonObject().put("users", users));
-        } catch (Exception e) {
-            ctx.fail(e);
-        }
+        userService
+                .getAllUsers()
+                .subscribe()
+                .with(users -> sendResponse(ctx, AppConstants.Status.OK, users), ctx::fail);
     }
 
     private void getUserById(RoutingContext ctx) {
-        try {
-            String userId = validatePathParam(ctx, "id");
-            if (userId == null) return;
-
-            JsonObject user = new JsonObject()
-                    .put("id", Integer.parseInt(userId))
-                    .put("name", "John Doe")
-                    .put("email", "john@example.com");
-
-            sendResponse(ctx, 200, user);
-        } catch (NumberFormatException e) {
-            sendError(ctx, 400, "Invalid user ID format");
-        } catch (Exception e) {
-            ctx.fail(e);
-        }
+        String userId = validatePathParam(ctx, "id");
+        if (userId == null) return;
+        userService
+                .getUserById(userId)
+                .subscribe()
+                .with(user -> sendResponse(ctx, AppConstants.Status.OK, user), ctx::fail);
     }
 
     private void createUser(RoutingContext ctx) {
-        try {
-            JsonObject body = validateRequestBody(ctx);
-            if (body == null) return;
-
-            if (!isValidUserData(body)) {
-                sendError(ctx, 400, "Invalid user data. Required fields: name, email");
-                return;
-            }
-
-            JsonObject newUser = new JsonObject()
-                    .put("id", generateUserId())
-                    .put("name", body.getString("name"))
-                    .put("email", body.getString("email"));
-
-            sendResponse(
-                    ctx,
-                    201,
-                    new JsonObject().put("message", "User created successfully").put("user", newUser));
-        } catch (Exception e) {
-            ctx.fail(e);
+        JsonObject body = validateRequestBody(ctx);
+        if (body == null) return;
+        if (isValidUserData(body)) {
+            throw new ServiceException(AppConstants.Messages.INVALID_USER_DATA, AppConstants.Status.BAD_REQUEST);
         }
+        userService
+                .createUser(body)
+                .subscribe()
+                .with(
+                        newUser -> sendResponse(
+                                ctx,
+                                AppConstants.Status.CREATED,
+                                new JsonObject()
+                                        .put("message", "User created successfully")
+                                        .put("user", newUser)),
+                        ctx::fail);
     }
 
     private void updateUser(RoutingContext ctx) {
-        try {
-            String userId = validatePathParam(ctx, "id");
-            if (userId == null) return;
-
-            JsonObject body = validateRequestBody(ctx);
-            if (body == null) return;
-
-            if (!isValidUserData(body)) {
-                sendError(ctx, 400, "Invalid user data. Required fields: name, email");
-                return;
-            }
-
-            JsonObject updatedUser = body.copy().put("id", Integer.parseInt(userId));
-
-            sendResponse(
-                    ctx,
-                    200,
-                    new JsonObject().put("message", "User updated successfully").put("user", updatedUser));
-        } catch (NumberFormatException e) {
-            sendError(ctx, 400, "Invalid user ID format");
-        } catch (Exception e) {
-            ctx.fail(e);
+        String userId = validatePathParam(ctx, "id");
+        JsonObject body = validateRequestBody(ctx);
+        if (body == null) return;
+        if (isValidUserData(body)) {
+            throw new ServiceException(AppConstants.Messages.INVALID_USER_DATA, AppConstants.Status.BAD_REQUEST);
         }
+        userService
+                .updateUser(userId, body)
+                .subscribe()
+                .with(
+                        updatedUser -> sendResponse(
+                                ctx,
+                                AppConstants.Status.OK,
+                                new JsonObject()
+                                        .put("message", "User updated successfully")
+                                        .put("user", updatedUser)),
+                        ctx::fail);
     }
 
     private void deleteUser(RoutingContext ctx) {
-        try {
-            String userId = validatePathParam(ctx, "id");
-            if (userId == null) return;
-
-            sendResponse(
-                    ctx,
-                    200,
-                    new JsonObject().put("message", "User deleted successfully").put("id", Integer.parseInt(userId)));
-        } catch (NumberFormatException e) {
-            sendError(ctx, 400, "Invalid user ID format");
-        } catch (Exception e) {
-            ctx.fail(e);
-        }
+        String userId = validatePathParam(ctx, "id");
+        userService
+                .deleteUser(userId)
+                .subscribe()
+                .with(
+                        msg -> sendResponse(
+                                ctx,
+                                AppConstants.Status.OK,
+                                new JsonObject().put("message", msg).put("id", userId)),
+                        ctx::fail);
     }
 
     private String validatePathParam(RoutingContext ctx, String param) {
         String value = ctx.pathParam(param);
         if (value == null || value.trim().isEmpty()) {
-            sendError(ctx, 400, "Missing required path parameter: " + param);
-            return null;
+            throw new ServiceException(
+                    AppConstants.Messages.MISSING_PATH_PARAM + param, AppConstants.Status.BAD_REQUEST);
         }
         return value;
     }
 
     private JsonObject validateRequestBody(RoutingContext ctx) {
         if (!ctx.body().available()) {
-            sendError(ctx, 400, "Request body is required");
-            return null;
+            throw new ServiceException(AppConstants.Messages.MISSING_BODY, AppConstants.Status.BAD_REQUEST);
         }
         return ctx.body().asJsonObject();
     }
 
     private boolean isValidUserData(JsonObject userData) {
-        return userData != null
-                && userData.containsKey("name")
-                && userData.containsKey("email")
-                && !userData.getString("name", "").trim().isEmpty()
-                && !userData.getString("email", "").trim().isEmpty();
-    }
-
-    private int generateUserId() {
-        // In a real application, this would be handled by a database
-        return (int) (Math.random() * 10000);
+        return userData == null
+                || !userData.containsKey("name")
+                || !userData.containsKey("email")
+                || userData.getString("name", "").trim().isEmpty()
+                || userData.getString("email", "").trim().isEmpty();
     }
 
     private void sendResponse(RoutingContext ctx, int statusCode, JsonObject response) {
@@ -168,26 +140,5 @@ public class UserRouter {
                 .setStatusCode(statusCode)
                 .putHeader(HttpHeaders.CONTENT_TYPE, CONTENT_TYPE + "; " + CHARSET)
                 .end(response.encode());
-    }
-
-    private void sendError(RoutingContext ctx, int statusCode, String message) {
-        JsonObject response = new JsonObject().put("error", message).put("status", statusCode);
-
-        sendResponse(ctx, statusCode, response);
-    }
-
-    private void handleError(RoutingContext ctx) {
-        Throwable error = ctx.failure();
-        int statusCode = ctx.statusCode() != -1 ? ctx.statusCode() : 500;
-
-        JsonObject response = new JsonObject()
-                .put("error", error != null ? error.getMessage() : "Internal Server Error")
-                .put("status", statusCode);
-
-        sendResponse(ctx, statusCode, response);
-    }
-
-    public Router getRouter() {
-        return this.router;
     }
 }
