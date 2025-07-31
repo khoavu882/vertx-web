@@ -1,4 +1,4 @@
-package com.github.kaivu.vertx_web.web.exceptions;
+package com.github.kaivu.vertxweb.web.exceptions;
 
 public class ServiceException extends RuntimeException {
     private final Integer statusCode;

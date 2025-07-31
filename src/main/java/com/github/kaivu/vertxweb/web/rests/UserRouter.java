@@ -1,8 +1,8 @@
-package com.github.kaivu.vertx_web.web.rests;
+package com.github.kaivu.vertxweb.web.rests;
 
-import com.github.kaivu.vertx_web.constants.AppConstants;
-import com.github.kaivu.vertx_web.services.UserService;
-import com.github.kaivu.vertx_web.web.exceptions.ServiceException;
+import com.github.kaivu.vertxweb.constants.AppConstants;
+import com.github.kaivu.vertxweb.services.UserService;
+import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import io.vertx.core.Vertx;
@@ -35,12 +35,12 @@ public class UserRouter {
         // Add BodyHandler to parse request bodies
         router.route().handler(BodyHandler.create());
 
-        // API routes
-        router.get("/api/users").handler(this::getAllUsers);
-        router.get("/api/users/:id").handler(this::getUserById);
-        router.post("/api/users").handler(this::createUser);
-        router.put("/api/users/:id").handler(this::updateUser);
-        router.delete("/api/users/:id").handler(this::deleteUser);
+        // API routes (relative to subrouter mount point)
+        router.get().handler(this::getAllUsers);
+        router.get("/:id").handler(this::getUserById);
+        router.post().handler(this::createUser);
+        router.put("/:id").handler(this::updateUser);
+        router.delete("/:id").handler(this::deleteUser);
     }
 
     private void getAllUsers(RoutingContext ctx) {
@@ -52,7 +52,6 @@ public class UserRouter {
 
     private void getUserById(RoutingContext ctx) {
         String userId = validatePathParam(ctx, "id");
-        if (userId == null) return;
         userService
                 .getUserById(userId)
                 .subscribe()

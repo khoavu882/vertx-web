@@ -1,6 +1,6 @@
-package com.github.kaivu.vertx_web.web.rests;
+package com.github.kaivu.vertxweb.web.rests;
 
-import com.github.kaivu.vertx_web.constants.AppConstants;
+import com.github.kaivu.vertxweb.constants.AppConstants;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import io.vertx.core.Vertx;
@@ -44,7 +44,7 @@ public class CommonRouter {
     }
 
     private void initializeRoutes() {
-        router.get("/").handler(this::publicHandler).failureHandler(this::handleError);
+        router.get().handler(this::publicHandler);
     }
 
     private void publicHandler(RoutingContext ctx) {
@@ -53,24 +53,12 @@ public class CommonRouter {
                 .put("status", "success")
                 .put("timestamp", System.currentTimeMillis());
 
-        sendJsonResponse(ctx, HTTP_OK, response);
+        sendJsonResponse(ctx, response);
     }
 
-    private void handleError(RoutingContext ctx) {
-        Throwable failure = ctx.failure();
-        String errorMessage = failure != null ? failure.getMessage() : "Unknown error";
-
-        JsonObject errorResponse = new JsonObject()
-                .put("error", errorMessage)
-                .put("status", "error")
-                .put("timestamp", System.currentTimeMillis());
-
-        sendJsonResponse(ctx, HTTP_INTERNAL_ERROR, errorResponse);
-    }
-
-    private void sendJsonResponse(RoutingContext ctx, int statusCode, JsonObject response) {
+    private void sendJsonResponse(RoutingContext ctx, JsonObject response) {
         ctx.response()
-                .setStatusCode(statusCode)
+                .setStatusCode(CommonRouter.HTTP_OK)
                 .putHeader(HttpHeaders.CONTENT_TYPE, CONTENT_TYPE)
                 .putHeader(HttpHeaders.CACHE_CONTROL, "no-cache")
                 .end(response.encode());

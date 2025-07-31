@@ -1,7 +1,7 @@
-package com.github.kaivu.vertx_web.web.rests;
+package com.github.kaivu.vertxweb.web.rests;
 
-import com.github.kaivu.vertx_web.constants.AppConstants;
-import com.github.kaivu.vertx_web.services.ProductService;
+import com.github.kaivu.vertxweb.constants.AppConstants;
+import com.github.kaivu.vertxweb.services.ProductService;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import io.vertx.core.Vertx;
@@ -31,7 +31,7 @@ public class ProductRouter {
     }
 
     private void setupRoutes() {
-        router.get("/").handler(this::getAllProducts);
+        router.get().handler(this::getAllProducts);
         router.get("/:productId").handler(this::getProductById);
     }
 

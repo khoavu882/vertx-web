@@ -1,4 +1,4 @@
-package com.github.kaivu.vertx_web.middlewares;
+package com.github.kaivu.vertxweb.middlewares;
 
 import io.vertx.ext.web.RoutingContext;
 import org.slf4j.Logger;

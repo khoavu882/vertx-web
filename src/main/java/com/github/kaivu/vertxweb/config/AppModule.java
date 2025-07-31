@@ -1,10 +1,10 @@
-package com.github.kaivu.vertx_web.config;
+package com.github.kaivu.vertxweb.config;
 
-import com.github.kaivu.vertx_web.services.ProductService;
-import com.github.kaivu.vertx_web.services.UserService;
-import com.github.kaivu.vertx_web.web.rests.CommonRouter;
-import com.github.kaivu.vertx_web.web.rests.ProductRouter;
-import com.github.kaivu.vertx_web.web.rests.UserRouter;
+import com.github.kaivu.vertxweb.services.ProductService;
+import com.github.kaivu.vertxweb.services.UserService;
+import com.github.kaivu.vertxweb.web.rests.CommonRouter;
+import com.github.kaivu.vertxweb.web.rests.ProductRouter;
+import com.github.kaivu.vertxweb.web.rests.UserRouter;
 import com.google.inject.AbstractModule;
 import com.google.inject.Provides;
 import com.google.inject.Singleton;

@@ -39,7 +39,7 @@ test {
 }
 
 application {
-    mainClass = 'com.github.kaivu.vertx_web.AppVerticle'
+    mainClass = 'com.github.kaivu.vertxweb.StartupApp'
 }
 
 spotless {

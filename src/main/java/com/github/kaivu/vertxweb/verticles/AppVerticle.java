@@ -1,13 +1,11 @@
-package com.github.kaivu.vertx_web;
+package com.github.kaivu.vertxweb.verticles;
 
-import com.github.kaivu.vertx_web.config.AppModule;
-import com.github.kaivu.vertx_web.web.routes.RouterConfig;
+import com.github.kaivu.vertxweb.config.AppModule;
+import com.github.kaivu.vertxweb.web.routes.RouterConfig;
 import com.google.inject.Guice;
 import com.google.inject.Injector;
 import io.vertx.core.AbstractVerticle;
-import io.vertx.core.DeploymentOptions;
 import io.vertx.core.Promise;
-import io.vertx.core.Vertx;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,23 +26,5 @@ public class AppVerticle extends AbstractVerticle {
                 startPromise.fail(http.cause());
             }
         });
-    }
-
-    public static void main(String[] args) {
-        Vertx vertx = Vertx.vertx();
-
-        // Deploy a worker verticle for handling blocking operations
-        DeploymentOptions workerOptions =
-                new DeploymentOptions().setWorker(true).setWorkerPoolSize(10).setWorkerPoolName("app-worker-pool");
-
-        vertx.deployVerticle(new WorkerVerticle(), workerOptions, res -> {
-            if (res.succeeded()) {
-                log.info("Worker verticle deployed successfully");
-            } else {
-                log.info("Failed to deploy worker verticle: {}", res.cause().getMessage());
-            }
-        });
-
-        vertx.deployVerticle(new AppVerticle());
     }
 }

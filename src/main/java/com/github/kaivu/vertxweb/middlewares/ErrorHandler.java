@@ -1,6 +1,6 @@
-package com.github.kaivu.vertx_web.middlewares;
+package com.github.kaivu.vertxweb.middlewares;
 
-import com.github.kaivu.vertx_web.web.exceptions.ServiceException;
+import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
 
@@ -21,8 +21,8 @@ public class ErrorHandler {
         int statusCode = 500;
         String message = "Internal Server Error";
 
-        if (failure instanceof ServiceException) {
-            statusCode = ((ServiceException) failure).getStatusCode();
+        if (failure instanceof ServiceException ex) {
+            statusCode = ex.getStatusCode();
             message = failure.getMessage();
         } else if (failure != null) {
             message = failure.getMessage();
