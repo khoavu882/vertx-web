@@ -1,6 +1,6 @@
-package com.github.kaivu.vertx_web.middlewares;
+package com.github.kaivu.vertxweb.middlewares;
 
-import io.vertx.ext.web.RoutingContext;
+import io.vertx.mutiny.ext.web.RoutingContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -20,7 +20,8 @@ public class LoggingHandler {
 
     public static void logRequest(RoutingContext ctx) {
         long startTime = System.currentTimeMillis();
-        ctx.addEndHandler(endHandler -> {
+
+        ctx.addEndHandler().subscribe().with(endHandler -> {
             long duration = System.currentTimeMillis() - startTime;
             int statusCode = ctx.response().getStatusCode();
             String method = ctx.request().method().name();

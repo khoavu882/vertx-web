@@ -1,4 +1,4 @@
-package com.github.kaivu.vertx_web;
+package com.github.kaivu.vertxweb.verticles;
 
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Promise;

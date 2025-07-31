@@ -1,20 +1,24 @@
-package com.github.kaivu.vertx_web.web.routes;
+package com.github.kaivu.vertxweb.web.routes;
 
-import com.github.kaivu.vertx_web.middlewares.AuthHandler;
-import com.github.kaivu.vertx_web.middlewares.ErrorHandler;
-import com.github.kaivu.vertx_web.middlewares.LoggingHandler;
-import com.github.kaivu.vertx_web.web.rests.CommonRouter;
-import com.github.kaivu.vertx_web.web.rests.ProductRouter;
-import com.github.kaivu.vertx_web.web.rests.UserRouter;
+import com.github.kaivu.vertxweb.middlewares.AuthHandler;
+import com.github.kaivu.vertxweb.middlewares.ErrorHandler;
+import com.github.kaivu.vertxweb.middlewares.LoggingHandler;
+import com.github.kaivu.vertxweb.web.rests.CommonRouter;
+import com.github.kaivu.vertxweb.web.rests.ProductRouter;
+import com.github.kaivu.vertxweb.web.rests.UserRouter;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
-import io.vertx.core.Vertx;
-import io.vertx.ext.web.Router;
-import io.vertx.ext.web.handler.BodyHandler;
+import io.vertx.mutiny.core.Vertx;
+import io.vertx.mutiny.ext.web.Router;
 import lombok.Getter;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Singleton
 public class RouterConfig {
+
+    private static final Logger log = LoggerFactory.getLogger(RouterConfig.class);
+
     private final Vertx vertx;
 
     @Getter
@@ -34,22 +38,11 @@ public class RouterConfig {
         this.userRouter = userRouter;
         this.productRouter = productRouter;
 
-        setupMiddleware();
+        router.route().handler(AuthHandler::authenticateRequest);
         setupRoutes();
-    }
-
-    private void setupMiddleware() {
-        router.route()
-                .handler(BodyHandler.create()
-                        .setBodyLimit(1024 * 1024) // 1MB limit
-                        .setHandleFileUploads(true)
-                        .setUploadsDirectory("uploads"));
-
         router.route().handler(LoggingHandler::logRequest);
 
-        router.route(API_PREFIX + "/*")
-                .handler(AuthHandler::authenticateRequest)
-                .handler(ctx -> ctx.response().putHeader("Cache-Control", "no-store"));
+        log.info("RouterConfig initialized with API prefix: {}", API_PREFIX);
     }
 
     private void setupRoutes() {
@@ -61,6 +54,6 @@ public class RouterConfig {
         router.route(API_PREFIX + "/products/*").subRouter(productRouter.getRouter());
 
         // Global error handling
-        router.route().last().failureHandler(ErrorHandler::handle);
+        router.route().failureHandler(ErrorHandler::handle);
     }
 }

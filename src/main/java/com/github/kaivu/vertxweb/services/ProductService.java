@@ -1,11 +1,11 @@
-package com.github.kaivu.vertx_web.services;
+package com.github.kaivu.vertxweb.services;
 
-import com.github.kaivu.vertx_web.web.exceptions.ServiceException;
+import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import io.smallrye.mutiny.Uni;
-import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
+import io.vertx.mutiny.core.Vertx;
 
 /**
  * Created by Khoa Vu.

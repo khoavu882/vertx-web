@@ -1,4 +1,4 @@
-package com.github.kaivu.vertx_web.constants;
+package com.github.kaivu.vertxweb.constants;
 
 public final class AppConstants {
     private AppConstants() {
@@ -23,7 +23,6 @@ public final class AppConstants {
     }
 
     public static final class Auth {
-        public static final String VALID_TOKEN = "valid_token";
         public static final String AUTH_SCHEME = "Bearer ";
     }
 
