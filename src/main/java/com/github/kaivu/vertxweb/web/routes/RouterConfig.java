@@ -1,5 +1,6 @@
 package com.github.kaivu.vertxweb.web.routes;
 
+import com.github.kaivu.vertxweb.config.AppConfig;
 import com.github.kaivu.vertxweb.middlewares.AuthHandler;
 import com.github.kaivu.vertxweb.middlewares.ErrorHandler;
 import com.github.kaivu.vertxweb.middlewares.LoggingHandler;
@@ -20,6 +21,7 @@ public class RouterConfig {
     private static final Logger log = LoggerFactory.getLogger(RouterConfig.class);
 
     private final Vertx vertx;
+    private final AppConfig appConfig;
 
     @Getter
     private final Router router;
@@ -27,34 +29,41 @@ public class RouterConfig {
     private final CommonRouter commonRouter;
     private final UserRouter userRouter;
     private final ProductRouter productRouter;
-    private static final String API_PREFIX = "/api";
-    private static final long REQUEST_TIMEOUT_MS = 5000; // 5 seconds
 
     @Inject
     public RouterConfig(
-            Vertx vertx, Router router, CommonRouter commonRouter, UserRouter userRouter, ProductRouter productRouter) {
+            Vertx vertx,
+            Router router,
+            AppConfig appConfig,
+            CommonRouter commonRouter,
+            UserRouter userRouter,
+            ProductRouter productRouter) {
         this.vertx = vertx;
+        this.appConfig = appConfig;
         this.router = router;
         this.commonRouter = commonRouter;
         this.userRouter = userRouter;
         this.productRouter = productRouter;
 
+        // Setup middleware pipeline in correct order
+        router.route().handler(LoggingHandler::logRequest);
         router.route().handler(AuthHandler::authenticateRequest);
         setupRoutes();
-        router.route().handler(LoggingHandler::logRequest);
-
-        log.info("RouterConfig initialized with API prefix: {}", API_PREFIX);
-    }
-
-    private void setupRoutes() {
-        // Public routes (bypassing authentication)
-        router.route(API_PREFIX + "/common/*").subRouter(commonRouter.getRouter());
-
-        // Protected routes
-        router.route(API_PREFIX + "/users/*").subRouter(userRouter.getRouter());
-        router.route(API_PREFIX + "/products/*").subRouter(productRouter.getRouter());
 
         // Global error handling
         router.route().failureHandler(ErrorHandler::handle);
+    }
+
+    private void setupRoutes() {
+        String apiPrefix = appConfig.getApiPrefix();
+
+        // Public routes (bypassing authentication)
+        router.route(apiPrefix + "/common/*").subRouter(commonRouter.getRouter());
+
+        // Protected routes
+        router.route(apiPrefix + "/users/*").subRouter(userRouter.getRouter());
+        router.route(apiPrefix + "/products/*").subRouter(productRouter.getRouter());
+
+        log.info("RouterConfig initialized with API prefix: {}", appConfig.getApiPrefix());
     }
 }

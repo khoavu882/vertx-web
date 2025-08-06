@@ -2,64 +2,108 @@ package com.github.kaivu.vertxweb.web.rests;
 
 import com.github.kaivu.vertxweb.constants.AppConstants;
 import com.github.kaivu.vertxweb.services.ProductService;
+import com.github.kaivu.vertxweb.web.RouterHelper;
+import com.github.kaivu.vertxweb.web.validation.ValidationResult;
+import com.github.kaivu.vertxweb.web.validation.Validator;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
+import io.smallrye.mutiny.Uni;
 import io.vertx.core.Vertx;
-import io.vertx.core.http.HttpHeaders;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
+import io.vertx.ext.web.handler.BodyHandler;
 import lombok.Getter;
 
 @Singleton
 public class ProductRouter {
-    private static final String CONTENT_TYPE = AppConstants.Http.CONTENT_TYPE_JSON;
-
-    private static final int HTTP_OK = AppConstants.Status.OK;
-    private static final int HTTP_NOT_FOUND = AppConstants.Status.NOT_FOUND;
 
     @Getter
     private final Router router;
 
     private final ProductService productService;
+    private final RouterHelper routerHelper;
 
     @Inject
-    public ProductRouter(Vertx vertx, ProductService productService) {
+    public ProductRouter(Vertx vertx, ProductService productService, RouterHelper routerHelper) {
         this.router = Router.router(vertx);
         this.productService = productService;
+        this.routerHelper = routerHelper;
         setupRoutes();
     }
 
     private void setupRoutes() {
-        router.get().handler(this::getAllProducts);
-        router.get("/:productId").handler(this::getProductById);
+        // Add BodyHandler to parse request bodies
+        router.route().handler(BodyHandler.create());
+
+        // API routes using clean async pattern
+        router.get().handler(ctx -> RouterHelper.handleAsync(ctx, this::getAllProducts));
+        router.get("/:productId").handler(ctx -> RouterHelper.handleAsync(ctx, this::getProductById));
+        router.post().handler(ctx -> RouterHelper.handleAsync(ctx, this::createProduct));
+        router.put("/:productId/stock").handler(ctx -> RouterHelper.handleAsync(ctx, this::updateProductStock));
     }
 
-    private void getAllProducts(RoutingContext ctx) {
-        productService
+    private Uni<Void> getAllProducts(RoutingContext ctx) {
+        return productService
                 .getAllProducts()
-                .subscribe()
-                .with(products -> sendJsonResponse(ctx, HTTP_OK, products), ctx::fail);
+                .onItem()
+                .invoke(products -> RouterHelper.sendJsonResponse(ctx, AppConstants.Status.OK, products))
+                .replaceWithVoid();
     }
 
-    private void getProductById(RoutingContext ctx) {
-        String productId = ctx.pathParam("productId");
-        if (productId == null || productId.isEmpty()) {
-            JsonObject errorResponse =
-                    new JsonObject().put("error", "Product ID is required").put("status", "error");
-            sendJsonResponse(ctx, HTTP_NOT_FOUND, errorResponse);
-            return;
-        }
-        productService
+    private Uni<Void> getProductById(RoutingContext ctx) {
+        // Validate path parameter using RouterHelper
+        String productId = routerHelper.validatePathParam(ctx, "productId");
+
+        return productService
                 .getProductById(productId)
-                .subscribe()
-                .with(product -> sendJsonResponse(ctx, HTTP_OK, product), ctx::fail);
+                .onItem()
+                .invoke(product -> RouterHelper.sendJsonResponse(ctx, AppConstants.Status.OK, product))
+                .replaceWithVoid();
     }
 
-    private void sendJsonResponse(RoutingContext ctx, int statusCode, JsonObject response) {
-        ctx.response()
-                .setStatusCode(statusCode)
-                .putHeader(HttpHeaders.CONTENT_TYPE, CONTENT_TYPE)
-                .end(response.encode());
+    private Uni<Void> createProduct(RoutingContext ctx) {
+        // Validate request body using RouterHelper
+        JsonObject body = routerHelper.validateRequestBody(ctx);
+
+        // Apply validation rules using RouterHelper
+        ValidationResult validation = Validator.Products.CREATE.validate(body);
+        routerHelper.handleValidationErrors(validation);
+
+        return productService
+                .createProduct(body)
+                .onItem()
+                .invoke(newProduct -> {
+                    JsonObject response = new JsonObject()
+                            .put("message", "Product created successfully")
+                            .put("product", newProduct);
+                    RouterHelper.sendJsonResponse(ctx, AppConstants.Status.CREATED, response);
+                })
+                .replaceWithVoid();
+    }
+
+    private Uni<Void> updateProductStock(RoutingContext ctx) {
+        // Validate path parameter using RouterHelper
+        String productId = routerHelper.validatePathParam(ctx, "productId");
+
+        // Validate request body using RouterHelper
+        JsonObject body = routerHelper.validateRequestBody(ctx);
+
+        // Apply validation rules using RouterHelper
+        ValidationResult validation = Validator.Products.STOCK_UPDATE.validate(body);
+        routerHelper.handleValidationErrors(validation);
+
+        // Extract quantity and handle service response
+        int newQuantity = body.getInteger("quantity");
+        return productService
+                .updateProductStock(productId, newQuantity)
+                .onItem()
+                .invoke(updatedProduct -> {
+                    JsonObject response = new JsonObject()
+                            .put("message", "Product stock updated successfully")
+                            .put("product", updatedProduct);
+                    RouterHelper.sendJsonResponse(ctx, AppConstants.Status.OK, response);
+                })
+                .replaceWithVoid();
     }
 }

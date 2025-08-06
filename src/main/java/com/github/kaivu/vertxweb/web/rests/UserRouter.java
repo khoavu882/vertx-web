@@ -2,11 +2,13 @@ package com.github.kaivu.vertxweb.web.rests;
 
 import com.github.kaivu.vertxweb.constants.AppConstants;
 import com.github.kaivu.vertxweb.services.UserService;
-import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
+import com.github.kaivu.vertxweb.web.RouterHelper;
+import com.github.kaivu.vertxweb.web.validation.ValidationResult;
+import com.github.kaivu.vertxweb.web.validation.Validator;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
+import io.smallrye.mutiny.Uni;
 import io.vertx.core.Vertx;
-import io.vertx.core.http.HttpHeaders;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
@@ -16,18 +18,17 @@ import lombok.Getter;
 @Singleton
 public class UserRouter {
 
-    private static final String CONTENT_TYPE = AppConstants.Http.CONTENT_TYPE_JSON;
-    private static final String CHARSET = AppConstants.Http.CHARSET_UTF8;
-
     @Getter
     private final Router router;
 
     private final UserService userService;
+    private final RouterHelper routerHelper;
 
     @Inject
-    public UserRouter(Vertx vertx, UserService userService) {
+    public UserRouter(Vertx vertx, UserService userService, RouterHelper routerHelper) {
         this.router = Router.router(vertx);
         this.userService = userService;
+        this.routerHelper = routerHelper;
         setupRoutes();
     }
 
@@ -35,109 +36,92 @@ public class UserRouter {
         // Add BodyHandler to parse request bodies
         router.route().handler(BodyHandler.create());
 
-        // API routes (relative to subrouter mount point)
-        router.get().handler(this::getAllUsers);
-        router.get("/:id").handler(this::getUserById);
-        router.post().handler(this::createUser);
-        router.put("/:id").handler(this::updateUser);
-        router.delete("/:id").handler(this::deleteUser);
+        // API routes using clean async pattern
+        router.get().handler(ctx -> RouterHelper.handleAsync(ctx, this::getAllUsers));
+        router.get("/:id").handler(ctx -> RouterHelper.handleAsync(ctx, this::getUserById));
+        router.post().handler(ctx -> RouterHelper.handleAsync(ctx, this::createUser));
+        router.put("/:id").handler(ctx -> RouterHelper.handleAsync(ctx, this::updateUser));
+        router.delete("/:id").handler(ctx -> RouterHelper.handleAsync(ctx, this::deleteUser));
     }
 
-    private void getAllUsers(RoutingContext ctx) {
-        userService
+    private Uni<Void> getAllUsers(RoutingContext ctx) {
+        return userService
                 .getAllUsers()
-                .subscribe()
-                .with(users -> sendResponse(ctx, AppConstants.Status.OK, users), ctx::fail);
+                .onItem()
+                .invoke(users -> RouterHelper.sendJsonResponse(ctx, AppConstants.Status.OK, users))
+                .replaceWithVoid();
     }
 
-    private void getUserById(RoutingContext ctx) {
-        String userId = validatePathParam(ctx, "id");
-        userService
+    /**
+     * Gets user by ID with improved error handling using RouterHelper.
+     * This method demonstrates clean path parameter validation and response handling.
+     */
+    private Uni<Void> getUserById(RoutingContext ctx) {
+        // Validate path parameter using RouterHelper
+        String userId = routerHelper.validatePathParam(ctx, "id");
+
+        return userService
                 .getUserById(userId)
-                .subscribe()
-                .with(user -> sendResponse(ctx, AppConstants.Status.OK, user), ctx::fail);
+                .onItem()
+                .invoke(user -> RouterHelper.sendJsonResponse(ctx, AppConstants.Status.OK, user))
+                .replaceWithVoid();
     }
 
-    private void createUser(RoutingContext ctx) {
-        JsonObject body = validateRequestBody(ctx);
-        if (body == null) return;
-        if (isValidUserData(body)) {
-            throw new ServiceException(AppConstants.Messages.INVALID_USER_DATA, AppConstants.Status.BAD_REQUEST);
-        }
-        userService
+    /**
+     * Creates a new user with improved error handling using RouterHelper.
+     * This method demonstrates the clean, reactive approach with RouterHelper utility.
+     */
+    private Uni<Void> createUser(RoutingContext ctx) {
+        // Validate request body using RouterHelper
+        JsonObject body = routerHelper.validateRequestBody(ctx);
+
+        // Apply validation rules using RouterHelper
+        ValidationResult validation = Validator.Users.CREATE.validate(body);
+        routerHelper.handleValidationErrors(validation);
+
+        return userService
                 .createUser(body)
-                .subscribe()
-                .with(
-                        newUser -> sendResponse(
-                                ctx,
-                                AppConstants.Status.CREATED,
-                                new JsonObject()
-                                        .put("message", "User created successfully")
-                                        .put("user", newUser)),
-                        ctx::fail);
+                .onItem()
+                .invoke(newUser -> {
+                    JsonObject response = new JsonObject()
+                            .put("message", "User created successfully")
+                            .put("user", newUser);
+                    RouterHelper.sendJsonResponse(ctx, AppConstants.Status.CREATED, response);
+                })
+                .replaceWithVoid();
     }
 
-    private void updateUser(RoutingContext ctx) {
-        String userId = validatePathParam(ctx, "id");
-        JsonObject body = validateRequestBody(ctx);
-        if (body == null) return;
-        if (isValidUserData(body)) {
-            throw new ServiceException(AppConstants.Messages.INVALID_USER_DATA, AppConstants.Status.BAD_REQUEST);
-        }
-        userService
+    private Uni<Void> updateUser(RoutingContext ctx) {
+        // Validate path parameter using RouterHelper
+        String userId = routerHelper.validatePathParam(ctx, "id");
+
+        // Validate request body using RouterHelper
+        JsonObject body = routerHelper.validateRequestBody(ctx);
+
+        // Apply validation rules using RouterHelper
+        ValidationResult validation = Validator.Users.UPDATE.validate(body);
+        routerHelper.handleValidationErrors(validation);
+
+        return userService
                 .updateUser(userId, body)
-                .subscribe()
-                .with(
-                        updatedUser -> sendResponse(
-                                ctx,
-                                AppConstants.Status.OK,
-                                new JsonObject()
-                                        .put("message", "User updated successfully")
-                                        .put("user", updatedUser)),
-                        ctx::fail);
+                .onItem()
+                .invoke(updatedUser -> {
+                    JsonObject response = new JsonObject()
+                            .put("message", "User updated successfully")
+                            .put("user", updatedUser);
+                    RouterHelper.sendJsonResponse(ctx, AppConstants.Status.OK, response);
+                })
+                .replaceWithVoid();
     }
 
-    private void deleteUser(RoutingContext ctx) {
-        String userId = validatePathParam(ctx, "id");
-        userService
+    private Uni<Void> deleteUser(RoutingContext ctx) {
+        // Validate path parameter using RouterHelper
+        String userId = routerHelper.validatePathParam(ctx, "id");
+
+        return userService
                 .deleteUser(userId)
-                .subscribe()
-                .with(
-                        msg -> sendResponse(
-                                ctx,
-                                AppConstants.Status.OK,
-                                new JsonObject().put("message", msg).put("id", userId)),
-                        ctx::fail);
-    }
-
-    private String validatePathParam(RoutingContext ctx, String param) {
-        String value = ctx.pathParam(param);
-        if (value == null || value.trim().isEmpty()) {
-            throw new ServiceException(
-                    AppConstants.Messages.MISSING_PATH_PARAM + param, AppConstants.Status.BAD_REQUEST);
-        }
-        return value;
-    }
-
-    private JsonObject validateRequestBody(RoutingContext ctx) {
-        if (!ctx.body().available()) {
-            throw new ServiceException(AppConstants.Messages.MISSING_BODY, AppConstants.Status.BAD_REQUEST);
-        }
-        return ctx.body().asJsonObject();
-    }
-
-    private boolean isValidUserData(JsonObject userData) {
-        return userData == null
-                || !userData.containsKey("name")
-                || !userData.containsKey("email")
-                || userData.getString("name", "").trim().isEmpty()
-                || userData.getString("email", "").trim().isEmpty();
-    }
-
-    private void sendResponse(RoutingContext ctx, int statusCode, JsonObject response) {
-        ctx.response()
-                .setStatusCode(statusCode)
-                .putHeader(HttpHeaders.CONTENT_TYPE, CONTENT_TYPE + "; " + CHARSET)
-                .end(response.encode());
+                .onItem()
+                .invoke(result -> RouterHelper.sendJsonResponse(ctx, AppConstants.Status.OK, result))
+                .replaceWithVoid();
     }
 }

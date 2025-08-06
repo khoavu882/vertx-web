@@ -1,5 +1,6 @@
 package com.github.kaivu.vertxweb.verticles;
 
+import com.github.kaivu.vertxweb.config.AppConfig;
 import com.github.kaivu.vertxweb.config.AppModule;
 import com.github.kaivu.vertxweb.web.routes.RouterConfig;
 import com.google.inject.Guice;
@@ -14,15 +15,27 @@ public class AppVerticle extends AbstractVerticle {
 
     @Override
     public void start(Promise<Void> startPromise) {
+        // Create Guice injector with all dependencies
         Injector injector = Guice.createInjector(new AppModule(vertx));
+
+        // Get configuration and router from injector
+        AppConfig appConfig = injector.getInstance(AppConfig.class);
         RouterConfig routerConfig = injector.getInstance(RouterConfig.class);
 
-        int port = config().getInteger("http.port", 8080);
-        vertx.createHttpServer().requestHandler(routerConfig.getRouter()).listen(port, http -> {
+        // Use configured port, with fallback to Vert.x config, then default
+        int configuredPort = appConfig.getServerPort();
+        int port = config().getInteger("http.port", configuredPort);
+        String host = appConfig.getServerHost();
+
+        log.info("Starting HTTP server on {}:{}", host, port);
+
+        vertx.createHttpServer().requestHandler(routerConfig.getRouter()).listen(port, host, http -> {
             if (http.succeeded()) {
                 startPromise.complete();
-                log.info("HTTP server started on port {}", port);
+                log.info("HTTP server started successfully on {}:{}", host, port);
+                log.info("API available at: http://{}:{}{}", host, port, appConfig.getApiPrefix());
             } else {
+                log.error("Failed to start HTTP server", http.cause());
                 startPromise.fail(http.cause());
             }
         });

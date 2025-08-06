@@ -26,24 +26,45 @@ public class AuthHandler {
         String path = ctx.request().path();
         log.info("Authenticating request: {}", path);
 
-        if (("/api/common").startsWith(ctx.request().path())) {
-            ctx.response()
-                    .putHeader(HttpHeaders.CONTENT_TYPE, AppConstants.Http.CONTENT_TYPE_JSON)
-                    .setStatusCode(AppConstants.Status.OK)
-                    .end(new JsonObject()
-                            .put("message", "Common endpoint accessed")
-                            .encode());
+        // Allow configured public endpoints to bypass authentication
+        // Note: In a real implementation, this should be injected via DI
+        // For now, we'll keep the hardcoded path but make it configurable later
+        if (path.startsWith("/api/common")) {
+            log.info("Bypassing authentication for public endpoint: {}", path);
+            ctx.next();
+            return;
         }
 
         String authHeader = ctx.request().getHeader(HttpHeaders.AUTHORIZATION.toString());
 
-        if (authHeader == null) {
+        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+            log.warn("Unauthorized request to protected endpoint: {}", path);
             ctx.response()
                     .putHeader(HttpHeaders.CONTENT_TYPE, AppConstants.Http.CONTENT_TYPE_JSON)
                     .setStatusCode(AppConstants.Status.UNAUTHORIZED)
-                    .end();
+                    .end(new JsonObject()
+                            .put("error", "Unauthorized")
+                            .put("message", "Missing or invalid authorization header")
+                            .encode());
+            return;
         }
 
+        // TODO: Implement actual token validation here
+        // For now, just check if Bearer token exists
+        String token = authHeader.substring(7); // Remove "Bearer " prefix
+        if (token.isEmpty()) {
+            log.warn("Empty token for protected endpoint: {}", path);
+            ctx.response()
+                    .putHeader(HttpHeaders.CONTENT_TYPE, AppConstants.Http.CONTENT_TYPE_JSON)
+                    .setStatusCode(AppConstants.Status.UNAUTHORIZED)
+                    .end(new JsonObject()
+                            .put("error", "Unauthorized")
+                            .put("message", "Empty authorization token")
+                            .encode());
+            return;
+        }
+
+        log.info("Authentication successful for: {}", path);
         ctx.next();
     }
 }
