@@ -1,6 +1,9 @@
 package com.github.kaivu.vertxweb.middlewares;
 
+import com.github.kaivu.vertxweb.config.ApplicationConfig;
 import com.github.kaivu.vertxweb.constants.AppConstants;
+import com.google.inject.Inject;
+import com.google.inject.Singleton;
 import io.vertx.core.http.HttpHeaders;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
@@ -13,23 +16,25 @@ import org.slf4j.LoggerFactory;
  * Date: 9/12/24
  * Time: 9:36 AM
  */
+@Singleton
 public class AuthHandler {
 
     private static final Logger log = LoggerFactory.getLogger(AuthHandler.class);
+    private final ApplicationConfig applicationConfig;
 
-    private AuthHandler() {
-        // Private constructor to prevent instantiation
+    @Inject
+    public AuthHandler(ApplicationConfig applicationConfig) {
+        this.applicationConfig = applicationConfig;
     }
 
-    public static void authenticateRequest(RoutingContext ctx) {
+    public void authenticateRequest(RoutingContext ctx) {
 
         String path = ctx.request().path();
         log.info("Authenticating request: {}", path);
 
         // Allow configured public endpoints to bypass authentication
-        // TODO: This should be injected via DI for better testability
-        // For now, we use the configured public paths from application.properties
-        if (path.startsWith("/api/common")) {
+        String publicPaths = applicationConfig.security().publicPaths();
+        if (path.startsWith(publicPaths)) {
             log.info("Bypassing authentication for public endpoint: {}", path);
             ctx.next();
             return;

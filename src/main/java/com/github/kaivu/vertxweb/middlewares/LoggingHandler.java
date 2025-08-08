@@ -1,5 +1,8 @@
 package com.github.kaivu.vertxweb.middlewares;
 
+import com.github.kaivu.vertxweb.config.ApplicationConfig;
+import com.google.inject.Inject;
+import com.google.inject.Singleton;
 import io.vertx.ext.web.RoutingContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -10,15 +13,24 @@ import org.slf4j.LoggerFactory;
  * Date: 9/12/24
  * Time: 10:20 AM
  */
+@Singleton
 public class LoggingHandler {
 
     private static final Logger log = LoggerFactory.getLogger(LoggingHandler.class);
+    private final ApplicationConfig applicationConfig;
 
-    private LoggingHandler() {
-        // Private constructor to prevent instantiation
+    @Inject
+    public LoggingHandler(ApplicationConfig applicationConfig) {
+        this.applicationConfig = applicationConfig;
     }
 
-    public static void logRequest(RoutingContext ctx) {
+    public void logRequest(RoutingContext ctx) {
+        // Only log requests if request logging is enabled
+        if (!applicationConfig.logging().enableRequestLogging()) {
+            ctx.next();
+            return;
+        }
+
         long startTime = System.currentTimeMillis();
         ctx.addEndHandler(endHandler -> {
             long duration = System.currentTimeMillis() - startTime;

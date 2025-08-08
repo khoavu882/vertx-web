@@ -1,5 +1,8 @@
 package com.github.kaivu.vertxweb.config;
 
+import com.github.kaivu.vertxweb.middlewares.AuthHandler;
+import com.github.kaivu.vertxweb.middlewares.ErrorHandler;
+import com.github.kaivu.vertxweb.middlewares.LoggingHandler;
 import com.github.kaivu.vertxweb.services.ProductService;
 import com.github.kaivu.vertxweb.services.UserService;
 import com.github.kaivu.vertxweb.web.RouterHelper;
@@ -40,6 +43,11 @@ public class AppModule extends AbstractModule {
         // Bind services - these have @Inject constructors, so Guice handles creation
         bind(UserService.class).in(Singleton.class);
         bind(ProductService.class).in(Singleton.class);
+
+        // Bind middleware handlers
+        bind(AuthHandler.class).in(Singleton.class);
+        bind(LoggingHandler.class).in(Singleton.class);
+        bind(ErrorHandler.class).in(Singleton.class);
 
         // Bind utility helpers
         bind(RouterHelper.class).in(Singleton.class);

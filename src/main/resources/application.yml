@@ -1,0 +1,27 @@
+# Vert.x Application Configuration
+# This file configures the application using SmallRye Config with YAML format
+# Environment variables will override these values using standard naming convention
+# Example: app.server.port -> APP_SERVER_PORT
+
+app:
+  server:
+    port: 8080
+    host: 0.0.0.0
+    request-timeout-ms: 30000
+    api-prefix: /api
+    enable-cors: true
+  
+  worker:
+    pool-size: 10
+    max-execute-time: 60000
+  
+  security:
+    enable-auth: true
+    jwt-secret: your-secret-key
+    jwt-expiration-ms: 86400000
+    public-paths: /api/common
+  
+  logging:
+    enable-request-logging: true
+    log-request-bodies: false
+    log-level: INFO

@@ -22,6 +22,9 @@ public class RouterConfig {
 
     private final Vertx vertx;
     private final ApplicationConfig appConfig;
+    private final LoggingHandler loggingHandler;
+    private final AuthHandler authHandler;
+    private final ErrorHandler errorHandler;
 
     @Getter
     private final Router router;
@@ -35,23 +38,29 @@ public class RouterConfig {
             Vertx vertx,
             Router router,
             ApplicationConfig appConfig,
+            LoggingHandler loggingHandler,
+            AuthHandler authHandler,
+            ErrorHandler errorHandler,
             CommonRouter commonRouter,
             UserRouter userRouter,
             ProductRouter productRouter) {
         this.vertx = vertx;
         this.appConfig = appConfig;
+        this.loggingHandler = loggingHandler;
+        this.authHandler = authHandler;
+        this.errorHandler = errorHandler;
         this.router = router;
         this.commonRouter = commonRouter;
         this.userRouter = userRouter;
         this.productRouter = productRouter;
 
         // Setup middleware pipeline in correct order
-        router.route().handler(LoggingHandler::logRequest);
-        router.route().handler(AuthHandler::authenticateRequest);
+        router.route().handler(loggingHandler::logRequest);
+        router.route().handler(authHandler::authenticateRequest);
         setupRoutes();
 
         // Global error handling
-        router.route().failureHandler(ErrorHandler::handle);
+        router.route().failureHandler(errorHandler::handle);
     }
 
     private void setupRoutes() {
