@@ -11,6 +11,7 @@ version = '1.0.0-SNAPSHOT'
 def vertxVersion = project.property('vertxVersion')
 def mutinyVersion = project.property('mutinyVersion')
 def guiceVersion = project.property('guiceVersion')
+def smallryeConfigVersion = project.property('smallryeConfigVersion')
 def lombokVersion = project.property('lombokVersion')
 def junitJupiterVersion = project.property('junitJupiterVersion')
 def logbackVersion = project.property('logbackVersion')
@@ -25,6 +26,7 @@ dependencies {
     implementation "io.vertx:vertx-web:${vertxVersion}"
     implementation "io.smallrye.reactive:mutiny:${mutinyVersion}"
     implementation "com.google.inject:guice:${guiceVersion}"
+    implementation "io.smallrye.config:smallrye-config:${smallryeConfigVersion}"
     implementation "org.slf4j:log4j-over-slf4j:${slf4jVersion}"
     implementation "ch.qos.logback:logback-classic:${logbackVersion}"
     compileOnly "org.projectlombok:lombok:${lombokVersion}"

@@ -24,18 +24,18 @@ import io.vertx.ext.web.Router;
  */
 public class AppModule extends AbstractModule {
     private final Vertx vertx;
-    private final AppConfig appConfig;
+    private final ApplicationConfig applicationConfig;
 
     public AppModule(Vertx vertx) {
         this.vertx = vertx;
-        this.appConfig = ConfigLoader.load();
+        this.applicationConfig = ConfigProvider.createConfig();
     }
 
     @Override
     protected void configure() {
         // Bind external instances that cannot be created by Guice
         bind(Vertx.class).toInstance(vertx);
-        bind(AppConfig.class).toInstance(appConfig);
+        bind(ApplicationConfig.class).toInstance(applicationConfig);
 
         // Bind services - these have @Inject constructors, so Guice handles creation
         bind(UserService.class).in(Singleton.class);

@@ -1,6 +1,6 @@
 package com.github.kaivu.vertxweb.web.routes;
 
-import com.github.kaivu.vertxweb.config.AppConfig;
+import com.github.kaivu.vertxweb.config.ApplicationConfig;
 import com.github.kaivu.vertxweb.middlewares.AuthHandler;
 import com.github.kaivu.vertxweb.middlewares.ErrorHandler;
 import com.github.kaivu.vertxweb.middlewares.LoggingHandler;
@@ -21,7 +21,7 @@ public class RouterConfig {
     private static final Logger log = LoggerFactory.getLogger(RouterConfig.class);
 
     private final Vertx vertx;
-    private final AppConfig appConfig;
+    private final ApplicationConfig appConfig;
 
     @Getter
     private final Router router;
@@ -34,7 +34,7 @@ public class RouterConfig {
     public RouterConfig(
             Vertx vertx,
             Router router,
-            AppConfig appConfig,
+            ApplicationConfig appConfig,
             CommonRouter commonRouter,
             UserRouter userRouter,
             ProductRouter productRouter) {
@@ -55,7 +55,7 @@ public class RouterConfig {
     }
 
     private void setupRoutes() {
-        String apiPrefix = appConfig.getApiPrefix();
+        String apiPrefix = appConfig.server().apiPrefix();
 
         // Public routes (bypassing authentication)
         router.route(apiPrefix + "/common/*").subRouter(commonRouter.getRouter());
@@ -64,6 +64,8 @@ public class RouterConfig {
         router.route(apiPrefix + "/users/*").subRouter(userRouter.getRouter());
         router.route(apiPrefix + "/products/*").subRouter(productRouter.getRouter());
 
-        log.info("RouterConfig initialized with API prefix: {}", appConfig.getApiPrefix());
+        log.info(
+                "RouterConfig initialized with API prefix: {}",
+                appConfig.server().apiPrefix());
     }
 }

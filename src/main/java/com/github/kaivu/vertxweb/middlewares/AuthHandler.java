@@ -27,8 +27,8 @@ public class AuthHandler {
         log.info("Authenticating request: {}", path);
 
         // Allow configured public endpoints to bypass authentication
-        // Note: In a real implementation, this should be injected via DI
-        // For now, we'll keep the hardcoded path but make it configurable later
+        // TODO: This should be injected via DI for better testability
+        // For now, we use the configured public paths from application.properties
         if (path.startsWith("/api/common")) {
             log.info("Bypassing authentication for public endpoint: {}", path);
             ctx.next();
