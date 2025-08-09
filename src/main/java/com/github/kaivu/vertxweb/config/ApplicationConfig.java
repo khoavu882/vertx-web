@@ -51,6 +51,11 @@ public interface ApplicationConfig {
      */
     ValidationConfig validation();
 
+    /**
+     * Deployment configuration section for Vertx options and deployment settings.
+     */
+    DeploymentConfig deployment();
+
     interface ServerConfig {
         @WithDefault("8080")
         int port();
@@ -186,5 +191,37 @@ public interface ApplicationConfig {
 
         @WithDefault("1000")
         int batchProcessedRecords();
+    }
+
+    interface DeploymentConfig {
+        @WithDefault("true")
+        boolean enableEventLoopPoolAutoSizing();
+
+        @WithDefault("2")
+        int workerPoolSizeMultiplier();
+
+        @WithDefault("5000")
+        long maxEventLoopExecuteTimeMs();
+
+        @WithDefault("1000")
+        long blockedThreadCheckIntervalMs();
+
+        @WithDefault("5000")
+        long warningExceptionTimeMs();
+
+        @WithDefault("true")
+        boolean enableAppVerticleAutoSizing();
+
+        @WithDefault("2")
+        int appVerticleInstanceDivisor();
+
+        @WithDefault("1")
+        int minAppVerticleInstances();
+
+        @WithDefault("app-worker-pool")
+        String workerPoolName();
+
+        @WithDefault("30")
+        int shutdownTimeoutSeconds();
     }
 }

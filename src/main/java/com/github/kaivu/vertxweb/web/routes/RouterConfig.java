@@ -5,6 +5,7 @@ import com.github.kaivu.vertxweb.middlewares.AuthHandler;
 import com.github.kaivu.vertxweb.middlewares.ErrorHandler;
 import com.github.kaivu.vertxweb.middlewares.LoggingHandler;
 import com.github.kaivu.vertxweb.web.rests.CommonRouter;
+import com.github.kaivu.vertxweb.web.rests.HealthRouter;
 import com.github.kaivu.vertxweb.web.rests.ProductRouter;
 import com.github.kaivu.vertxweb.web.rests.UserRouter;
 import com.google.inject.Inject;
@@ -30,6 +31,7 @@ public class RouterConfig {
     private final Router router;
 
     private final CommonRouter commonRouter;
+    private final HealthRouter healthRouter;
     private final UserRouter userRouter;
     private final ProductRouter productRouter;
 
@@ -42,6 +44,7 @@ public class RouterConfig {
             AuthHandler authHandler,
             ErrorHandler errorHandler,
             CommonRouter commonRouter,
+            HealthRouter healthRouter,
             UserRouter userRouter,
             ProductRouter productRouter) {
         this.vertx = vertx;
@@ -51,6 +54,7 @@ public class RouterConfig {
         this.errorHandler = errorHandler;
         this.router = router;
         this.commonRouter = commonRouter;
+        this.healthRouter = healthRouter;
         this.userRouter = userRouter;
         this.productRouter = productRouter;
 
@@ -69,12 +73,15 @@ public class RouterConfig {
         // Public routes (bypassing authentication)
         router.route(apiPrefix + "/common/*").subRouter(commonRouter.getRouter());
 
+        // Health check routes (public, no authentication required)
+        healthRouter.configureRoutes(router);
+
         // Protected routes
         router.route(apiPrefix + "/users/*").subRouter(userRouter.getRouter());
         router.route(apiPrefix + "/products/*").subRouter(productRouter.getRouter());
 
         log.info(
-                "RouterConfig initialized with API prefix: {}",
+                "RouterConfig initialized with API prefix: {} and health endpoints",
                 appConfig.server().apiPrefix());
     }
 }

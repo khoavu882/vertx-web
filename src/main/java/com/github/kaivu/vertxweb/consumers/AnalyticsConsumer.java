@@ -4,8 +4,11 @@ import com.github.kaivu.vertxweb.config.ApplicationConfig;
 import com.github.kaivu.vertxweb.constants.AppConstants;
 import com.github.kaivu.vertxweb.context.ContextAwareVertxWrapper;
 import com.github.kaivu.vertxweb.context.CorrelationContext;
+import com.github.kaivu.vertxweb.patterns.CircuitBreakerRegistry;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import com.google.inject.Inject;
+import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.subscription.UniEmitter;
 import io.vertx.core.Vertx;
 import io.vertx.core.eventbus.EventBus;
 import io.vertx.core.eventbus.Message;
@@ -13,21 +16,23 @@ import io.vertx.core.json.JsonObject;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Random;
+import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 public class AnalyticsConsumer implements EventBusConsumer {
 
     private static final Logger log = LoggerFactory.getLogger(AnalyticsConsumer.class);
-    private static final String REQUEST_ID_KEY = "requestId";
     private static final Random RANDOM = new Random();
     private final Vertx vertx;
     private final ApplicationConfig appConfig;
+    private final CircuitBreakerRegistry circuitBreakerRegistry;
 
     @Inject
-    public AnalyticsConsumer(Vertx vertx, ApplicationConfig appConfig) {
+    public AnalyticsConsumer(Vertx vertx, ApplicationConfig appConfig, CircuitBreakerRegistry circuitBreakerRegistry) {
         this.vertx = vertx;
         this.appConfig = appConfig;
+        this.circuitBreakerRegistry = circuitBreakerRegistry;
     }
 
     @Override
@@ -61,37 +66,46 @@ public class AnalyticsConsumer implements EventBusConsumer {
             // Validate request data with context
             validateAnalyticsRequest(requestData, context);
 
-            // Use wrapper's executeBlocking for context-aware processing
-            wrapper.executeBlocking(
-                            () -> generateAnalyticsReport(requestData, finalContext),
-                            appConfig.analytics().executionTimeoutMs(),
-                            "Analytics report generation failed")
-                    .onSuccess(report -> {
-                        finalWrapper.logEvent(
-                                "analytics_report_completed",
-                                "duration_ms",
-                                finalContext.getProcessingDurationMs(),
-                                "correlation_id",
-                                finalContext.getCorrelationId());
-                        message.reply(report.encode());
-                    })
-                    .onFailure(error -> {
-                        finalWrapper.logEvent(
-                                "analytics_report_failed",
-                                "error",
-                                error.getMessage(),
-                                "correlation_id",
-                                finalContext.getCorrelationId());
+            // Use circuit breaker with wrapper's executeBlocking for resilient processing
+            circuitBreakerRegistry
+                    .getAnalyticsCircuitBreaker()
+                    .execute(() -> Uni.createFrom().emitter((Consumer<UniEmitter<? super JsonObject>>) (emitter) -> {
+                        finalWrapper
+                                .executeBlocking(
+                                        () -> generateAnalyticsReport(finalContext),
+                                        appConfig.analytics().executionTimeoutMs(),
+                                        "Analytics report generation failed")
+                                .onSuccess(emitter::complete)
+                                .onFailure(emitter::fail);
+                    }))
+                    .subscribe()
+                    .with(
+                            report -> {
+                                finalWrapper.logEvent(
+                                        "analytics_report_completed",
+                                        "duration_ms",
+                                        finalContext.getProcessingDurationMs(),
+                                        "correlation_id",
+                                        finalContext.getCorrelationId());
+                                message.reply((report).encode());
+                            },
+                            error -> {
+                                finalWrapper.logEvent(
+                                        "analytics_report_failed",
+                                        "error",
+                                        error.getMessage(),
+                                        "correlation_id",
+                                        finalContext.getCorrelationId());
 
-                        if (error instanceof ServiceException) {
-                            ServiceException se = (ServiceException) error;
-                            message.fail(se.getStatusCode(), se.getMessage());
-                        } else {
-                            message.fail(
-                                    AppConstants.Status.INTERNAL_SERVER_ERROR,
-                                    "Internal server error: " + error.getMessage());
-                        }
-                    });
+                                if (error instanceof ServiceException) {
+                                    ServiceException se = (ServiceException) error;
+                                    message.fail(se.getStatusCode(), se.getMessage());
+                                } else {
+                                    message.fail(
+                                            AppConstants.Status.INTERNAL_SERVER_ERROR,
+                                            "Internal server error: " + error.getMessage());
+                                }
+                            });
 
         } catch (ServiceException e) {
             log.error("Service error generating analytics report: {}", e.getMessage());
@@ -136,16 +150,14 @@ public class AnalyticsConsumer implements EventBusConsumer {
         log.debug("Analytics request validated for correlation: {}", context.getCorrelationId());
     }
 
-    private JsonObject generateAnalyticsReport(JsonObject requestData, CorrelationContext context) {
+    private JsonObject generateAnalyticsReport(CorrelationContext context) {
         try {
             log.info("Generating analytics report with correlation: {}", context.getCorrelationId());
 
-            // Simulate database queries with correlation context
-            Thread.sleep(appConfig.analytics().databaseQueryDelayMs()); // Simulate database query
+            // Simulate database queries with correlation context (non-blocking)
             log.debug("Database queries completed for correlation: {}", context.getCorrelationId());
 
-            // Simulate file I/O operations
-            Thread.sleep(appConfig.analytics().fileProcessingDelayMs()); // Simulate file processing
+            // Simulate file I/O operations (non-blocking)
             log.debug("File processing completed for correlation: {}", context.getCorrelationId());
 
             // Generate mock analytics data
@@ -170,9 +182,9 @@ public class AnalyticsConsumer implements EventBusConsumer {
                     .put("tenantId", context.getTenantId())
                     .put("status", "completed");
 
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ServiceException("Report generation was interrupted", AppConstants.Status.SERVICE_UNAVAILABLE);
+        } catch (Exception e) {
+            throw new ServiceException(
+                    "Report generation failed: " + e.getMessage(), AppConstants.Status.SERVICE_UNAVAILABLE);
         }
     }
 }

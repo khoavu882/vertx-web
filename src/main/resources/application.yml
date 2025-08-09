@@ -25,3 +25,48 @@ app:
     enable-request-logging: true
     log-request-bodies: false
     log-level: INFO
+  
+  service:
+    default-timeout-ms: 500
+    base-delay-ms: 100
+    max-delay-variance-ms: 200
+    min-id-range: 1000
+    max-id-range: 9999
+    user-fetch-base-delay-ms: 50
+    user-fetch-max-variance-ms: 100
+    create-base-delay-ms: 200
+    create-max-variance-ms: 300
+    product-create-base-delay-ms: 300
+    product-create-max-variance-ms: 400
+    update-base-delay-ms: 150
+    update-max-variance-ms: 200
+    delete-base-delay-ms: 100
+    delete-max-variance-ms: 150
+  
+  analytics:
+    event-address: app.worker.analytics-report
+    database-query-delay-ms: 2000
+    file-processing-delay-ms: 1000
+    execution-timeout-ms: 500
+    max-products: 1000
+    min-products: 100
+    max-revenue: 100000
+    max-order-value: 500
+    min-order-value: 50
+    request-expiration-ms: 3600000
+  
+  validation:
+    max-name-length: 100
+    batch-processed-records: 1000
+  
+  deployment:
+    enable-event-loop-pool-auto-sizing: true
+    worker-pool-size-multiplier: 2
+    max-event-loop-execute-time-ms: 5000
+    blocked-thread-check-interval-ms: 1000
+    warning-exception-time-ms: 5000
+    enable-app-verticle-auto-sizing: true
+    app-verticle-instance-divisor: 2
+    min-app-verticle-instances: 1
+    worker-pool-name: app-worker-pool
+    shutdown-timeout-seconds: 30

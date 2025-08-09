@@ -3,11 +3,13 @@ package com.github.kaivu.vertxweb.consumers;
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
 import com.github.kaivu.vertxweb.constants.AppConstants;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
+import com.google.inject.Inject;
 import io.vertx.core.eventbus.EventBus;
 import io.vertx.core.eventbus.Message;
 import io.vertx.core.json.JsonObject;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Random;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -15,8 +17,10 @@ public class BatchOperationConsumer implements EventBusConsumer {
 
     private static final Logger log = LoggerFactory.getLogger(BatchOperationConsumer.class);
     private static final String OPERATION_KEY = "operation";
+    private static final Random RANDOM = new Random();
     private final ApplicationConfig appConfig;
 
+    @Inject
     public BatchOperationConsumer(ApplicationConfig appConfig) {
         this.appConfig = appConfig;
     }
@@ -95,18 +99,18 @@ public class BatchOperationConsumer implements EventBusConsumer {
         try {
             String operation = requestData.getString(OPERATION_KEY);
 
-            // Simulate batch database operations
-            Thread.sleep(1500); // Simulate database batch processing
+            // Simulate batch database operations (non-blocking)
+            int recordsProcessed = RANDOM.nextInt(100) + appConfig.validation().batchProcessedRecords();
 
             return new JsonObject()
                     .put(OPERATION_KEY, operation)
                     .put("processedAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
-                    .put("recordsProcessed", appConfig.validation().batchProcessedRecords())
+                    .put("recordsProcessed", recordsProcessed)
                     .put("status", "completed");
 
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ServiceException("Batch operation was interrupted", AppConstants.Status.SERVICE_UNAVAILABLE);
+        } catch (Exception e) {
+            throw new ServiceException(
+                    "Batch operation failed: " + e.getMessage(), AppConstants.Status.SERVICE_UNAVAILABLE);
         }
     }
 }

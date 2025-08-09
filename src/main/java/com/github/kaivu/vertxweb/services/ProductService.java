@@ -19,7 +19,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Created by Khoa Vu.
- * Mail: khoavd12@fpt.com
+ * Mail: kai.vu.dev@gmail.com
  * Date: 9/12/24
  * Time: 10:22 AM
  */

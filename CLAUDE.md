@@ -13,46 +13,99 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Architecture Overview
 
 ### Application Bootstrap
-The application uses a dual-verticle architecture:
-- `StartupApp.java` - Entry point that deploys both verticles
-- `AppVerticle` - Main HTTP server verticle (port 8080)
-- `WorkerVerticle` - Background worker pool (10 threads)
+The application uses a dual-verticle architecture with auto-scaling:
+- `StartupApp.java` - Entry point that creates `Vertx` instance with tuned `VertxOptions`, deploys both verticles, and sets up graceful shutdown
+- `AppVerticle` - Main HTTP server verticle. Multiple instances deployed based on CPU cores (configurable via `app.deployment.*`). Each instance creates its own Guice `Injector` and `RouterConfig`
+- `WorkerVerticle` - Background worker deployed with `ThreadingModel.WORKER`. Registers all `EventBusConsumer` implementations
 
 ### Dependency Injection
-- Uses Google Guice for DI (`AppModule.java`)
-- All services and routers are `@Singleton` and provided through `@Provides` methods
-- Injector is created in `AppVerticle` and used to bootstrap `RouterConfig`
+- Uses Google Guice (`AppModule.java`)
+- `AppModule` receives `Vertx` instance and loads config via `ConfigProvider.createConfig()`
+- All services, routers, middleware, and consumers bound as `@Singleton` in `configure()`
+- `Router` provided via `@Provides` factory method since it requires `Router.router(vertx)`
+- Both `AppVerticle` and `WorkerVerticle` create their own `Injector` independently
 
 ### HTTP Routing Architecture
-- `RouterConfig.java` - Central router configuration with middleware pipeline
-- Middleware order: AuthHandler → LoggingHandler → Route handlers → ErrorHandler (failures)
-- API prefix: `/api`
+- `RouterConfig.java` - Central router configuration, all dependencies constructor-injected
+- Middleware pipeline order: `LoggingHandler` → `AuthHandler` → Route handlers → `ErrorHandler` (failure handler)
+- API prefix: `/api` (configured via `app.server.api-prefix`)
 - Route structure:
-  - `/api/common/*` - Public routes (bypasses auth)
-  - `/api/users/*` - Protected user endpoints
-  - `/api/products/*` - Protected product endpoints
+  - `/api/common/*` - Public routes (bypasses auth via `publicPaths` config check in `AuthHandler`)
+  - `/api/users/*` - Protected user endpoints (sub-router)
+  - `/api/products/*` - Protected product endpoints (sub-router)
+  - `/health/*` - Health check routes (configured directly on main router, not as sub-router)
+- Each domain router (`UserRouter`, `ProductRouter`, `CommonRouter`) creates its own `Router.router(vertx)` and exposes it via `getRouter()`
+- `HealthRouter` uses a different pattern: `configureRoutes(Router)` adds routes directly to the main router
 
-### Code Organization
-- `middlewares/` - Request processing (auth, logging, error handling)
-- `services/` - Business logic layer (uses async Mutiny for reactive programming)
-- `web/rests/` - REST router classes (one per domain)
-- `web/exceptions/` - Custom exception types
-- `constants/` - Application constants
+### Request Handling Pattern
+All endpoints use `RouterHelper.handleAsync()` which:
+1. Creates a `ContextAwareVertxWrapper` from the HTTP request
+2. Extracts user/tenant context from headers (`X-Tenant-ID`)
+3. Stores the wrapper in `RoutingContext` as `"contextWrapper"`
+4. Subscribes to the `Uni<Void>` returned by the handler
+5. Logs request lifecycle with correlation IDs
+6. Routes failures through `ctx.fail()` to the `ErrorHandler`
 
-### Key Technologies
-- **Vert.x 4.5.14** - Main framework
-- **Google Guice 7.0.0** - Dependency injection
-- **Mutiny 2.6.2** - Reactive programming
-- **Lombok** - Code generation
-- **Spotless + Palantir Java Format** - Code formatting
+Router handler pattern:
+```java
+router.get().handler(ctx -> RouterHelper.handleAsync(ctx, this::getAllUsers));
 
-### Testing
-- No test directory exists currently
-- When adding tests, use JUnit 5 with Vert.x JUnit5 extension
-- Test dependencies already configured in `build.gradle`
+private Uni<Void> getAllUsers(RoutingContext ctx) {
+    return userService.getAllUsersWithContext(ctx)
+        .onItem().invoke(users -> RouterHelper.sendJsonResponse(ctx, AppConstants.Status.OK, users))
+        .replaceWithVoid();
+}
+```
 
-### Build System
+### Service Layer
+- All services use Mutiny `Uni<T>` for reactive async operations
+- Dual method pattern: `methodName()` (legacy, passes `null` ctx) delegates to `methodNameWithContext(args, RoutingContext ctx)` (production, with correlation tracking)
+- Services extract `ContextAwareVertxWrapper` from `ctx.get("contextWrapper")` for correlation logging
+- Currently uses simulated/stubbed data (no real database) with configurable delays to simulate latency
+- `UserService` wraps operations with `CircuitBreakerRegistry.getDatabaseCircuitBreaker()`
+- `ProductService` delegates to `ProductRepository` interface (implemented by `ProductRepositoryImpl`)
+
+### Validation Framework
+- `Validator` class holds static validator instances per entity: `Validator.Users.CREATE`, `Validator.Products.CREATE`, etc.
+- Built from composable `ValidationRule` instances (`required`, `minLength`, `maxLength`, `email`, `positiveNumber`, `integerRange`)
+- Returns `ValidationResult` checked via `routerHelper.handleValidationErrors()`
+
+### Circuit Breaker
+- Custom implementation in `patterns/CircuitBreaker.java` (not Vert.x circuit breaker)
+- States: `CLOSED` → `OPEN` → `HALF_OPEN` → `CLOSED`
+- Configured via `CircuitBreakerConfig` record (failure threshold, success threshold, timeouts)
+- `CircuitBreakerRegistry` provides named circuit breakers (e.g., `getDatabaseCircuitBreaker()`)
+- Wraps `Uni<T>` operations with timeout and failure counting
+
+### EventBus Consumer Pattern
+- Interface: `EventBusConsumer` with `getEventAddress()` and `registerConsumer(EventBus)`
+- Consumers: `AnalyticsConsumer`, `BatchOperationConsumer`, `HealthCheckConsumer` (Guice-injected), `LegacyOperationConsumer` (manually instantiated)
+- All injected consumers receive `ApplicationConfig` via constructor
+- Registered in `WorkerVerticle.createConsumers()`
+
+### Context & Correlation
+- `ContextAwareVertxWrapper` extends `VertxWrapper` - provides correlation tracking across verticle boundaries
+- `CorrelationContext` carries request ID, correlation ID, user/tenant context, timing data
+- Supports MDC integration for structured logging
+- EventBus messages enriched with `_context`, `_correlationId`, `_requestId` fields via `enrichEventBusMessage()`
+- Factory methods: `fromHttpRequest()`, `fromEventBus()`, `fromEventBusMessage()`
+
+## Configuration
+
+- SmallRye Config with `@ConfigMapping(prefix = "app")` on `ApplicationConfig` interface
+- Config file: `src/main/resources/application.yml`
+- Loaded via `ConfigProvider.createConfig()` (uses SmallRye `ConfigProviderResolver`)
+- Environment variable override: `app.server.port` → `APP_SERVER_PORT`
+- All interfaces have `@WithDefault` annotations for sensible defaults
+- Config sections: `server`, `worker`, `security`, `logging`, `service`, `analytics`, `validation`, `deployment`
+
+## Build System
 - **Gradle 9.0** with wrapper scripts
-- Version properties defined in `gradle.properties`
+- Version properties in `gradle.properties` (Vert.x 4.5.14, Mutiny 2.6.2, Guice 7.0.0, SmallRye Config 3.13.4)
 - Main class: `com.github.kaivu.vertxweb.StartupApp`
-- Code formatting enforced via Spotless plugin
+- Spotless plugin with Palantir Java Format enforced
+- Test dependencies configured (JUnit 5 + Vert.x JUnit5 extension) but no tests written yet
+
+## Constants & Status Codes
+
+Use `AppConstants.Status.*` for HTTP status codes and `AppConstants.Messages.*` for error messages. Never hardcode status codes in exceptions. All timing/delay values must come from `ApplicationConfig`.
