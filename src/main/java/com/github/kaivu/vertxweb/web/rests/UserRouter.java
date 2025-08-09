@@ -46,7 +46,7 @@ public class UserRouter {
 
     private Uni<Void> getAllUsers(RoutingContext ctx) {
         return userService
-                .getAllUsers()
+                .getAllUsersWithContext(ctx)
                 .onItem()
                 .invoke(users -> RouterHelper.sendJsonResponse(ctx, AppConstants.Status.OK, users))
                 .replaceWithVoid();
@@ -61,7 +61,7 @@ public class UserRouter {
         String userId = routerHelper.validatePathParam(ctx, "id");
 
         return userService
-                .getUserById(userId)
+                .getUserByIdWithContext(userId, ctx)
                 .onItem()
                 .invoke(user -> RouterHelper.sendJsonResponse(ctx, AppConstants.Status.OK, user))
                 .replaceWithVoid();
@@ -80,7 +80,7 @@ public class UserRouter {
         routerHelper.handleValidationErrors(validation);
 
         return userService
-                .createUser(body)
+                .createUserWithContext(body, ctx)
                 .onItem()
                 .invoke(newUser -> {
                     JsonObject response = new JsonObject()
@@ -103,7 +103,7 @@ public class UserRouter {
         routerHelper.handleValidationErrors(validation);
 
         return userService
-                .updateUser(userId, body)
+                .updateUserWithContext(userId, body, ctx)
                 .onItem()
                 .invoke(updatedUser -> {
                     JsonObject response = new JsonObject()
@@ -119,7 +119,7 @@ public class UserRouter {
         String userId = routerHelper.validatePathParam(ctx, "id");
 
         return userService
-                .deleteUser(userId)
+                .deleteUserWithContext(userId, ctx)
                 .onItem()
                 .invoke(result -> RouterHelper.sendJsonResponse(ctx, AppConstants.Status.OK, result))
                 .replaceWithVoid();

@@ -1,5 +1,8 @@
 package com.github.kaivu.vertxweb.services;
 
+import com.github.kaivu.vertxweb.config.ApplicationConfig;
+import com.github.kaivu.vertxweb.constants.AppConstants;
+import com.github.kaivu.vertxweb.context.ContextAwareVertxWrapper;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
@@ -7,6 +10,7 @@ import io.smallrye.mutiny.Uni;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
+import io.vertx.ext.web.RoutingContext;
 import java.time.Duration;
 import java.util.concurrent.ThreadLocalRandom;
 import org.slf4j.Logger;
@@ -22,20 +26,44 @@ import org.slf4j.LoggerFactory;
 public class UserService {
     private static final Logger log = LoggerFactory.getLogger(UserService.class);
     private final Vertx vertx;
+    private final ApplicationConfig appConfig;
 
     @Inject
-    public UserService(Vertx vertx) {
+    public UserService(Vertx vertx, ApplicationConfig appConfig) {
         this.vertx = vertx;
+        this.appConfig = appConfig;
     }
 
     public Uni<JsonObject> getAllUsers() {
+        return getAllUsersWithContext(null);
+    }
+
+    public Uni<JsonObject> getAllUsersWithContext(RoutingContext ctx) {
+        ContextAwareVertxWrapper wrapper = ctx != null ? (ContextAwareVertxWrapper) ctx.get("contextWrapper") : null;
+
+        if (wrapper != null) {
+            wrapper.logEvent("service_operation_start", "operation", "getAllUsers");
+        }
+
         log.info("Fetching all users...");
 
+        Uni<JsonObject> result = performGetAllUsers();
+
+        if (wrapper != null) {
+            wrapper.logEvent("service_operation_completed", "operation", "getAllUsers");
+        }
+
+        return result;
+    }
+
+    private Uni<JsonObject> performGetAllUsers() {
         return Uni.createFrom()
                 .item(0)
                 .onItem()
                 .delayIt()
-                .by(Duration.ofMillis(100 + ThreadLocalRandom.current().nextInt(200)))
+                .by(Duration.ofMillis(appConfig.service().baseDelayMs()
+                        + ThreadLocalRandom.current()
+                                .nextInt(appConfig.service().maxDelayVarianceMs())))
                 .onItem()
                 .transform(ignored -> {
                     JsonArray users = new JsonArray()
@@ -60,22 +88,45 @@ public class UserService {
                 .onFailure()
                 .transform(throwable -> {
                     log.error("Error fetching users", throwable);
-                    return new ServiceException("Failed to fetch users", 500);
+                    return new ServiceException("Failed to fetch users", AppConstants.Status.INTERNAL_SERVER_ERROR);
                 });
     }
 
     public Uni<JsonObject> getUserById(String userId) {
+        return getUserByIdWithContext(userId, null);
+    }
+
+    public Uni<JsonObject> getUserByIdWithContext(String userId, RoutingContext ctx) {
         if (userId == null || userId.isBlank()) {
-            return Uni.createFrom().failure(new ServiceException("User ID must not be empty", 400));
+            return Uni.createFrom()
+                    .failure(new ServiceException("User ID must not be empty", AppConstants.Status.BAD_REQUEST));
+        }
+
+        ContextAwareVertxWrapper wrapper = ctx != null ? (ContextAwareVertxWrapper) ctx.get("contextWrapper") : null;
+
+        if (wrapper != null) {
+            wrapper.logEvent("service_operation_start", "operation", "getUserById", "userId", userId);
         }
 
         log.info("Fetching user by ID: {}", userId);
 
+        Uni<JsonObject> result = performGetUserById(userId);
+
+        if (wrapper != null) {
+            wrapper.logEvent("service_operation_completed", "operation", "getUserById", "userId", userId);
+        }
+
+        return result;
+    }
+
+    private Uni<JsonObject> performGetUserById(String userId) {
         return Uni.createFrom()
                 .item(userId)
                 .onItem()
                 .delayIt()
-                .by(Duration.ofMillis(50 + ThreadLocalRandom.current().nextInt(100)))
+                .by(Duration.ofMillis(appConfig.service().userFetchBaseDelayMs()
+                        + ThreadLocalRandom.current()
+                                .nextInt(appConfig.service().userFetchMaxVarianceMs())))
                 .onItem()
                 .transform(id -> {
                     // Simulate database lookup
@@ -98,7 +149,7 @@ public class UserService {
                                 .put("email", "bob@example.com")
                                 .put("active", false)
                                 .put("createdAt", "2024-02-01T09:15:00Z");
-                        default -> throw new ServiceException("User not found", 404);
+                        default -> throw new ServiceException("User not found", AppConstants.Status.NOT_FOUND);
                     };
                 })
                 .onFailure(ServiceException.class)
@@ -106,36 +157,64 @@ public class UserService {
                 .onFailure()
                 .transform(throwable -> {
                     log.error("Error fetching user: {}", userId, throwable);
-                    return new ServiceException("Failed to fetch user", 500);
+                    return new ServiceException("Failed to fetch user", AppConstants.Status.INTERNAL_SERVER_ERROR);
                 });
     }
 
     public Uni<JsonObject> createUser(JsonObject user) {
+        return createUserWithContext(user, null);
+    }
+
+    public Uni<JsonObject> createUserWithContext(JsonObject user, RoutingContext ctx) {
         if (user == null || user.isEmpty()) {
-            return Uni.createFrom().failure(new ServiceException("User data must not be empty", 400));
+            return Uni.createFrom()
+                    .failure(new ServiceException("User data must not be empty", AppConstants.Status.BAD_REQUEST));
         }
 
         String name = user.getString("name");
         String email = user.getString("email");
 
         if (name == null || name.isBlank()) {
-            return Uni.createFrom().failure(new ServiceException("User name is required", 400));
+            return Uni.createFrom()
+                    .failure(new ServiceException("User name is required", AppConstants.Status.BAD_REQUEST));
         }
         if (email == null || email.isBlank()) {
-            return Uni.createFrom().failure(new ServiceException("User email is required", 400));
+            return Uni.createFrom()
+                    .failure(new ServiceException("User email is required", AppConstants.Status.BAD_REQUEST));
+        }
+
+        ContextAwareVertxWrapper wrapper = ctx != null ? (ContextAwareVertxWrapper) ctx.get("contextWrapper") : null;
+
+        if (wrapper != null) {
+            wrapper.logEvent("service_operation_start", "operation", "createUser", "userName", name);
         }
 
         log.info("Creating new user: {}", name);
 
+        Uni<JsonObject> result = performCreateUser(user);
+
+        if (wrapper != null) {
+            wrapper.logEvent("service_operation_completed", "operation", "createUser", "userName", name);
+        }
+
+        return result;
+    }
+
+    private Uni<JsonObject> performCreateUser(JsonObject user) {
         return Uni.createFrom()
                 .item(user)
                 .onItem()
                 .delayIt()
-                .by(Duration.ofMillis(200 + ThreadLocalRandom.current().nextInt(300)))
+                .by(Duration.ofMillis(appConfig.service().createBaseDelayMs()
+                        + ThreadLocalRandom.current()
+                                .nextInt(appConfig.service().createMaxVarianceMs())))
                 .onItem()
                 .transform(userData -> {
                     // Simulate database insert with generated ID
-                    int newId = ThreadLocalRandom.current().nextInt(1000, 9999);
+                    int newId = ThreadLocalRandom.current()
+                            .nextInt(
+                                    appConfig.service().minIdRange(),
+                                    appConfig.service().maxIdRange());
                     return new JsonObject()
                             .put("id", newId)
                             .put("name", userData.getString("name"))
@@ -146,24 +225,38 @@ public class UserService {
                 .onFailure()
                 .transform(throwable -> {
                     log.error("Error creating user", throwable);
-                    return new ServiceException("Failed to create user", 500);
+                    return new ServiceException("Failed to create user", AppConstants.Status.INTERNAL_SERVER_ERROR);
                 });
     }
 
     public Uni<JsonObject> updateUser(String userId, JsonObject user) {
+        return updateUserWithContext(userId, user, null);
+    }
+
+    public Uni<JsonObject> updateUserWithContext(String userId, JsonObject user, RoutingContext ctx) {
         if (userId == null || userId.isBlank()) {
-            return Uni.createFrom().failure(new ServiceException("User ID must not be empty", 400));
+            return Uni.createFrom()
+                    .failure(new ServiceException("User ID must not be empty", AppConstants.Status.BAD_REQUEST));
         }
         if (user == null || user.isEmpty()) {
-            return Uni.createFrom().failure(new ServiceException("User data must not be empty", 400));
+            return Uni.createFrom()
+                    .failure(new ServiceException("User data must not be empty", AppConstants.Status.BAD_REQUEST));
+        }
+
+        ContextAwareVertxWrapper wrapper = ctx != null ? (ContextAwareVertxWrapper) ctx.get("contextWrapper") : null;
+
+        if (wrapper != null) {
+            wrapper.logEvent("service_operation_start", "operation", "updateUser", "userId", userId);
         }
 
         log.info("Updating user: {}", userId);
 
-        return getUserById(userId)
+        return getUserByIdWithContext(userId, ctx)
                 .onItem()
                 .delayIt()
-                .by(Duration.ofMillis(150 + ThreadLocalRandom.current().nextInt(200)))
+                .by(Duration.ofMillis(appConfig.service().updateBaseDelayMs()
+                        + ThreadLocalRandom.current()
+                                .nextInt(appConfig.service().updateMaxVarianceMs())))
                 .onItem()
                 .transform(existingUser -> {
                     // Merge updates with existing data
@@ -188,28 +281,47 @@ public class UserService {
                         return throwable;
                     }
                     log.error("Error updating user: {}", userId, throwable);
-                    return new ServiceException("Failed to update user", 500);
+                    return new ServiceException("Failed to update user", AppConstants.Status.INTERNAL_SERVER_ERROR);
                 });
     }
 
     public Uni<JsonObject> deleteUser(String userId) {
+        return deleteUserWithContext(userId, null);
+    }
+
+    public Uni<JsonObject> deleteUserWithContext(String userId, RoutingContext ctx) {
         if (userId == null || userId.isBlank()) {
-            return Uni.createFrom().failure(new ServiceException("User ID must not be empty", 400));
+            return Uni.createFrom()
+                    .failure(new ServiceException("User ID must not be empty", AppConstants.Status.BAD_REQUEST));
+        }
+
+        ContextAwareVertxWrapper wrapper = ctx != null ? (ContextAwareVertxWrapper) ctx.get("contextWrapper") : null;
+
+        if (wrapper != null) {
+            wrapper.logEvent("service_operation_start", "operation", "deleteUser", "userId", userId);
         }
 
         log.info("Deleting user: {}", userId);
 
-        return getUserById(userId)
+        return getUserByIdWithContext(userId, ctx)
                 .onItem()
                 .delayIt()
-                .by(Duration.ofMillis(100 + ThreadLocalRandom.current().nextInt(150)))
+                .by(Duration.ofMillis(appConfig.service().deleteBaseDelayMs()
+                        + ThreadLocalRandom.current()
+                                .nextInt(appConfig.service().deleteMaxVarianceMs())))
                 .onItem()
                 .transform(existingUser -> {
                     // Simulate soft delete
-                    return new JsonObject()
+                    JsonObject result = new JsonObject()
                             .put("id", userId)
                             .put("message", "User deleted successfully")
                             .put("deletedAt", java.time.Instant.now().toString());
+
+                    if (wrapper != null) {
+                        wrapper.logEvent("service_operation_completed", "operation", "deleteUser", "userId", userId);
+                    }
+
+                    return result;
                 })
                 .onFailure()
                 .transform(throwable -> {
@@ -217,7 +329,7 @@ public class UserService {
                         return throwable;
                     }
                     log.error("Error deleting user: {}", userId, throwable);
-                    return new ServiceException("Failed to delete user", 500);
+                    return new ServiceException("Failed to delete user", AppConstants.Status.INTERNAL_SERVER_ERROR);
                 });
     }
 }

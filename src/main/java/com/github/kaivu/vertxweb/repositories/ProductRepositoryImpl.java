@@ -1,5 +1,6 @@
 package com.github.kaivu.vertxweb.repositories;
 
+import com.github.kaivu.vertxweb.constants.AppConstants;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import com.google.inject.Singleton;
 import io.smallrye.mutiny.Uni;
@@ -13,7 +14,7 @@ public class ProductRepositoryImpl implements ProductRepository {
         if ("1".equals(productId)) {
             return Uni.createFrom().item(new JsonObject().put("productId", "1").put("name", "Widget"));
         }
-        return Uni.createFrom().failure(new ServiceException("Product not found", 404));
+        return Uni.createFrom().failure(new ServiceException("Product not found", AppConstants.Status.NOT_FOUND));
     }
 
     @Override

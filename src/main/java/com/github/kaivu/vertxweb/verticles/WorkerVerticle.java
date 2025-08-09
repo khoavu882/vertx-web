@@ -1,9 +1,13 @@
 package com.github.kaivu.vertxweb.verticles;
 
+import com.github.kaivu.vertxweb.config.AppModule;
+import com.github.kaivu.vertxweb.config.ApplicationConfig;
 import com.github.kaivu.vertxweb.consumers.AnalyticsConsumer;
 import com.github.kaivu.vertxweb.consumers.BatchOperationConsumer;
 import com.github.kaivu.vertxweb.consumers.EventBusConsumer;
 import com.github.kaivu.vertxweb.consumers.LegacyOperationConsumer;
+import com.google.inject.Guice;
+import com.google.inject.Injector;
 import io.vertx.core.AbstractVerticle;
 import io.vertx.core.Promise;
 import io.vertx.core.eventbus.EventBus;
@@ -18,10 +22,14 @@ public class WorkerVerticle extends AbstractVerticle {
 
     @Override
     public void start(Promise<Void> startPromise) {
+        // Create Guice injector with all dependencies
+        Injector injector = Guice.createInjector(new AppModule(vertx));
+        ApplicationConfig appConfig = injector.getInstance(ApplicationConfig.class);
+
         EventBus eventBus = vertx.eventBus();
 
-        // Initialize all consumer classes
-        List<EventBusConsumer> consumers = createConsumers();
+        // Initialize all consumer classes with dependency injection
+        List<EventBusConsumer> consumers = createConsumers(appConfig);
 
         // Register all consumers
         consumers.forEach(consumer -> {
@@ -33,13 +41,13 @@ public class WorkerVerticle extends AbstractVerticle {
         log.info("WorkerVerticle started successfully with {} consumers", consumers.size());
     }
 
-    private List<EventBusConsumer> createConsumers() {
+    private List<EventBusConsumer> createConsumers(ApplicationConfig appConfig) {
         List<EventBusConsumer> consumers = new ArrayList<>();
 
-        // Add all business consumers
+        // Add all business consumers with proper dependency injection
         consumers.add(new LegacyOperationConsumer());
-        consumers.add(new AnalyticsConsumer());
-        consumers.add(new BatchOperationConsumer());
+        consumers.add(new AnalyticsConsumer(vertx, appConfig));
+        consumers.add(new BatchOperationConsumer(appConfig));
 
         return consumers;
     }

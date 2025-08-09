@@ -53,7 +53,7 @@ public class ProductRouter {
 
     private Uni<Void> getAllProducts(RoutingContext ctx) {
         return productService
-                .getAllProducts()
+                .getAllProductsWithContext(ctx)
                 .onItem()
                 .invoke(products -> RouterHelper.sendJsonResponse(ctx, AppConstants.Status.OK, products))
                 .replaceWithVoid();
@@ -64,7 +64,7 @@ public class ProductRouter {
         String productId = routerHelper.validatePathParam(ctx, "productId");
 
         return productService
-                .getProductById(productId)
+                .getProductByIdWithContext(productId, ctx)
                 .onItem()
                 .invoke(product -> RouterHelper.sendJsonResponse(ctx, AppConstants.Status.OK, product))
                 .replaceWithVoid();
@@ -79,7 +79,7 @@ public class ProductRouter {
         routerHelper.handleValidationErrors(validation);
 
         return productService
-                .createProduct(body)
+                .createProductWithContext(body, ctx)
                 .onItem()
                 .invoke(newProduct -> {
                     JsonObject response = new JsonObject()
@@ -104,7 +104,7 @@ public class ProductRouter {
         // Extract quantity and handle service response
         int newQuantity = body.getInteger("quantity");
         return productService
-                .updateProductStock(productId, newQuantity)
+                .updateProductStockWithContext(productId, newQuantity, ctx)
                 .onItem()
                 .invoke(updatedProduct -> {
                     JsonObject response = new JsonObject()
@@ -149,7 +149,7 @@ public class ProductRouter {
                 sendJsonResponse(ctx, HTTP_OK, report);
             } else {
                 // Extract status code from ServiceException if available
-                int statusCode = 500; // default
+                int statusCode = AppConstants.Status.INTERNAL_SERVER_ERROR; // default
                 String errorMessage = "Failed to generate analytics report";
 
                 if (reply.cause() instanceof io.vertx.core.eventbus.ReplyException) {
@@ -222,7 +222,7 @@ public class ProductRouter {
                 sendJsonResponse(ctx, HTTP_OK, result);
             } else {
                 // Extract status code from ServiceException
-                int statusCode = 500;
+                int statusCode = AppConstants.Status.INTERNAL_SERVER_ERROR;
                 String errorMessage = "Batch operation failed";
 
                 if (reply.cause() instanceof io.vertx.core.eventbus.ReplyException) {

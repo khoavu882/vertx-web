@@ -1,5 +1,7 @@
 package com.github.kaivu.vertxweb.consumers;
 
+import com.github.kaivu.vertxweb.config.ApplicationConfig;
+import com.github.kaivu.vertxweb.constants.AppConstants;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import io.vertx.core.eventbus.EventBus;
 import io.vertx.core.eventbus.Message;
@@ -13,6 +15,11 @@ public class BatchOperationConsumer implements EventBusConsumer {
 
     private static final Logger log = LoggerFactory.getLogger(BatchOperationConsumer.class);
     private static final String OPERATION_KEY = "operation";
+    private final ApplicationConfig appConfig;
+
+    public BatchOperationConsumer(ApplicationConfig appConfig) {
+        this.appConfig = appConfig;
+    }
 
     @Override
     public String getEventAddress() {
@@ -45,18 +52,19 @@ public class BatchOperationConsumer implements EventBusConsumer {
             message.fail(e.getStatusCode(), e.getMessage());
         } catch (Exception e) {
             log.error("Unexpected error in batch operation", e);
-            message.fail(500, "Internal server error: " + e.getMessage());
+            message.fail(AppConstants.Status.INTERNAL_SERVER_ERROR, "Internal server error: " + e.getMessage());
         }
     }
 
     private void validateBatchRequest(JsonObject requestData) {
         if (requestData == null) {
-            throw new ServiceException("Batch request data cannot be null", 400);
+            throw new ServiceException("Batch request data cannot be null", AppConstants.Status.BAD_REQUEST);
         }
 
         String operation = requestData.getString(OPERATION_KEY);
         if (operation == null || operation.trim().isEmpty()) {
-            throw new ServiceException("Operation type is required for batch processing", 400);
+            throw new ServiceException(
+                    "Operation type is required for batch processing", AppConstants.Status.BAD_REQUEST);
         }
 
         // Validate allowed operations
@@ -70,14 +78,15 @@ public class BatchOperationConsumer implements EventBusConsumer {
                 throw new ServiceException(
                         "Unsupported batch operation: " + operation
                                 + ". Allowed operations: insert, update, delete, migrate",
-                        400);
+                        AppConstants.Status.BAD_REQUEST);
         }
 
         // Additional validation based on operation type
         if (operation.equalsIgnoreCase("delete")) {
             Boolean confirmDelete = requestData.getBoolean("confirmDelete");
             if (confirmDelete == null || !confirmDelete) {
-                throw new ServiceException("Delete operation requires explicit confirmation", 400);
+                throw new ServiceException(
+                        "Delete operation requires explicit confirmation", AppConstants.Status.BAD_REQUEST);
             }
         }
     }
@@ -92,12 +101,12 @@ public class BatchOperationConsumer implements EventBusConsumer {
             return new JsonObject()
                     .put(OPERATION_KEY, operation)
                     .put("processedAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
-                    .put("recordsProcessed", 1000)
+                    .put("recordsProcessed", appConfig.validation().batchProcessedRecords())
                     .put("status", "completed");
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new ServiceException("Batch operation was interrupted", 503);
+            throw new ServiceException("Batch operation was interrupted", AppConstants.Status.SERVICE_UNAVAILABLE);
         }
     }
 }

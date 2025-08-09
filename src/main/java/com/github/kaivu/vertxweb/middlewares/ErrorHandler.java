@@ -28,7 +28,7 @@ public class ErrorHandler {
 
     public void handle(RoutingContext ctx) {
         Throwable failure = ctx.failure();
-        int statusCode = 500;
+        int statusCode = AppConstants.Status.INTERNAL_SERVER_ERROR;
         String message = "Internal Server Error";
 
         if (failure instanceof ServiceException ex) {

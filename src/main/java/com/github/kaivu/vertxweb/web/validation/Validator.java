@@ -50,7 +50,7 @@ public class Validator {
                 ValidationRule.required("category"),
                 ValidationRule.required("price"),
                 ValidationRule.minLength("name", 2),
-                ValidationRule.maxLength("name", 100),
+                ValidationRule.maxLength("name", 100), // TODO: Move to ApplicationConfig
                 ValidationRule.minLength("category", 2),
                 ValidationRule.maxLength("category", 50),
                 ValidationRule.positiveNumber("price"),
@@ -58,7 +58,7 @@ public class Validator {
 
         public static final Validator UPDATE = Validator.of(
                 ValidationRule.minLength("name", 2),
-                ValidationRule.maxLength("name", 100),
+                ValidationRule.maxLength("name", 100), // TODO: Move to ApplicationConfig
                 ValidationRule.minLength("category", 2),
                 ValidationRule.maxLength("category", 50),
                 ValidationRule.positiveNumber("price"),

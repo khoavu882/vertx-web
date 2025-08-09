@@ -36,6 +36,21 @@ public interface ApplicationConfig {
      */
     LoggingConfig logging();
 
+    /**
+     * Service configuration section for timeout and delay values.
+     */
+    ServiceConfig service();
+
+    /**
+     * Analytics configuration section.
+     */
+    AnalyticsConfig analytics();
+
+    /**
+     * Validation configuration section.
+     */
+    ValidationConfig validation();
+
     interface ServerConfig {
         @WithDefault("8080")
         int port();
@@ -84,5 +99,92 @@ public interface ApplicationConfig {
 
         @WithDefault("INFO")
         String logLevel();
+    }
+
+    interface ServiceConfig {
+        @WithDefault("500")
+        int defaultTimeoutMs();
+
+        @WithDefault("100")
+        int baseDelayMs();
+
+        @WithDefault("200")
+        int maxDelayVarianceMs();
+
+        @WithDefault("1000")
+        int minIdRange();
+
+        @WithDefault("9999")
+        int maxIdRange();
+
+        @WithDefault("50")
+        int userFetchBaseDelayMs();
+
+        @WithDefault("100")
+        int userFetchMaxVarianceMs();
+
+        @WithDefault("200")
+        int createBaseDelayMs();
+
+        @WithDefault("300")
+        int createMaxVarianceMs();
+
+        @WithDefault("300")
+        int productCreateBaseDelayMs();
+
+        @WithDefault("400")
+        int productCreateMaxVarianceMs();
+
+        @WithDefault("150")
+        int updateBaseDelayMs();
+
+        @WithDefault("200")
+        int updateMaxVarianceMs();
+
+        @WithDefault("100")
+        int deleteBaseDelayMs();
+
+        @WithDefault("150")
+        int deleteMaxVarianceMs();
+    }
+
+    interface AnalyticsConfig {
+        @WithDefault("app.worker.analytics-report")
+        String eventAddress();
+
+        @WithDefault("2000")
+        int databaseQueryDelayMs();
+
+        @WithDefault("1000")
+        int fileProcessingDelayMs();
+
+        @WithDefault("500")
+        int executionTimeoutMs();
+
+        @WithDefault("1000")
+        int maxProducts();
+
+        @WithDefault("100")
+        int minProducts();
+
+        @WithDefault("100000")
+        double maxRevenue();
+
+        @WithDefault("500")
+        double maxOrderValue();
+
+        @WithDefault("50")
+        double minOrderValue();
+
+        @WithDefault("3600000")
+        long requestExpirationMs();
+    }
+
+    interface ValidationConfig {
+        @WithDefault("100")
+        int maxNameLength();
+
+        @WithDefault("1000")
+        int batchProcessedRecords();
     }
 }
