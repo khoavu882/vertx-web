@@ -3,6 +3,7 @@ package com.github.kaivu.vertxweb.services;
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
 import com.github.kaivu.vertxweb.constants.AppConstants;
 import com.github.kaivu.vertxweb.context.ContextAwareVertxWrapper;
+import com.github.kaivu.vertxweb.patterns.CircuitBreakerRegistry;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
@@ -18,7 +19,7 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Created by Khoa Vu.
- * Mail: khoavd12@fpt.com
+ * Mail: kai.vu.dev@gmail.com
  * Date: 9/12/24
  * Time: 10:25 AM
  */
@@ -27,11 +28,13 @@ public class UserService {
     private static final Logger log = LoggerFactory.getLogger(UserService.class);
     private final Vertx vertx;
     private final ApplicationConfig appConfig;
+    private final CircuitBreakerRegistry circuitBreakerRegistry;
 
     @Inject
-    public UserService(Vertx vertx, ApplicationConfig appConfig) {
+    public UserService(Vertx vertx, ApplicationConfig appConfig, CircuitBreakerRegistry circuitBreakerRegistry) {
         this.vertx = vertx;
         this.appConfig = appConfig;
+        this.circuitBreakerRegistry = circuitBreakerRegistry;
     }
 
     public Uni<JsonObject> getAllUsers() {
@@ -47,7 +50,8 @@ public class UserService {
 
         log.info("Fetching all users...");
 
-        Uni<JsonObject> result = performGetAllUsers();
+        Uni<JsonObject> result =
+                circuitBreakerRegistry.getDatabaseCircuitBreaker().execute(() -> performGetAllUsers());
 
         if (wrapper != null) {
             wrapper.logEvent("service_operation_completed", "operation", "getAllUsers");
@@ -110,7 +114,8 @@ public class UserService {
 
         log.info("Fetching user by ID: {}", userId);
 
-        Uni<JsonObject> result = performGetUserById(userId);
+        Uni<JsonObject> result =
+                circuitBreakerRegistry.getDatabaseCircuitBreaker().execute(() -> performGetUserById(userId));
 
         if (wrapper != null) {
             wrapper.logEvent("service_operation_completed", "operation", "getUserById", "userId", userId);
@@ -191,7 +196,8 @@ public class UserService {
 
         log.info("Creating new user: {}", name);
 
-        Uni<JsonObject> result = performCreateUser(user);
+        Uni<JsonObject> result =
+                circuitBreakerRegistry.getDatabaseCircuitBreaker().execute(() -> performCreateUser(user));
 
         if (wrapper != null) {
             wrapper.logEvent("service_operation_completed", "operation", "createUser", "userName", name);
@@ -251,7 +257,7 @@ public class UserService {
 
         log.info("Updating user: {}", userId);
 
-        return getUserByIdWithContext(userId, ctx)
+        return circuitBreakerRegistry.getDatabaseCircuitBreaker().execute(() -> getUserByIdWithContext(userId, ctx)
                 .onItem()
                 .delayIt()
                 .by(Duration.ofMillis(appConfig.service().updateBaseDelayMs()
@@ -282,7 +288,7 @@ public class UserService {
                     }
                     log.error("Error updating user: {}", userId, throwable);
                     return new ServiceException("Failed to update user", AppConstants.Status.INTERNAL_SERVER_ERROR);
-                });
+                }));
     }
 
     public Uni<JsonObject> deleteUser(String userId) {
@@ -303,7 +309,7 @@ public class UserService {
 
         log.info("Deleting user: {}", userId);
 
-        return getUserByIdWithContext(userId, ctx)
+        return circuitBreakerRegistry.getDatabaseCircuitBreaker().execute(() -> getUserByIdWithContext(userId, ctx)
                 .onItem()
                 .delayIt()
                 .by(Duration.ofMillis(appConfig.service().deleteBaseDelayMs()
@@ -330,6 +336,6 @@ public class UserService {
                     }
                     log.error("Error deleting user: {}", userId, throwable);
                     return new ServiceException("Failed to delete user", AppConstants.Status.INTERNAL_SERVER_ERROR);
-                });
+                }));
     }
 }

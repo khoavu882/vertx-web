@@ -1,14 +1,19 @@
 package com.github.kaivu.vertxweb.config;
 
+import com.github.kaivu.vertxweb.consumers.AnalyticsConsumer;
+import com.github.kaivu.vertxweb.consumers.BatchOperationConsumer;
+import com.github.kaivu.vertxweb.consumers.HealthCheckConsumer;
 import com.github.kaivu.vertxweb.middlewares.AuthHandler;
 import com.github.kaivu.vertxweb.middlewares.ErrorHandler;
 import com.github.kaivu.vertxweb.middlewares.LoggingHandler;
+import com.github.kaivu.vertxweb.patterns.CircuitBreakerRegistry;
 import com.github.kaivu.vertxweb.repositories.ProductRepository;
 import com.github.kaivu.vertxweb.repositories.ProductRepositoryImpl;
 import com.github.kaivu.vertxweb.services.ProductService;
 import com.github.kaivu.vertxweb.services.UserService;
 import com.github.kaivu.vertxweb.web.RouterHelper;
 import com.github.kaivu.vertxweb.web.rests.CommonRouter;
+import com.github.kaivu.vertxweb.web.rests.HealthRouter;
 import com.github.kaivu.vertxweb.web.rests.ProductRouter;
 import com.github.kaivu.vertxweb.web.rests.UserRouter;
 import com.github.kaivu.vertxweb.web.routes.RouterConfig;
@@ -57,8 +62,17 @@ public class AppModule extends AbstractModule {
         // Bind utility helpers
         bind(RouterHelper.class).in(Singleton.class);
 
+        // Bind patterns and infrastructure
+        bind(CircuitBreakerRegistry.class).in(Singleton.class);
+
+        // Bind EventBus consumers
+        bind(AnalyticsConsumer.class).in(Singleton.class);
+        bind(BatchOperationConsumer.class).in(Singleton.class);
+        bind(HealthCheckConsumer.class).in(Singleton.class);
+
         // Bind routers - these also have @Inject constructors
         bind(CommonRouter.class).in(Singleton.class);
+        bind(HealthRouter.class).in(Singleton.class);
         bind(UserRouter.class).in(Singleton.class);
         bind(ProductRouter.class).in(Singleton.class);
 
