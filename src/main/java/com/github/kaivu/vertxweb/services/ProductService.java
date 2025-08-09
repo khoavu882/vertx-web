@@ -1,5 +1,6 @@
 package com.github.kaivu.vertxweb.services;
 
+import com.github.kaivu.vertxweb.repositories.ProductRepository;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
@@ -21,46 +22,30 @@ import org.slf4j.LoggerFactory;
 @Singleton
 public class ProductService {
     private static final Logger log = LoggerFactory.getLogger(ProductService.class);
+    private final ProductRepository productRepository;
     private final Vertx vertx;
 
     @Inject
-    public ProductService(Vertx vertx) {
+    public ProductService(ProductRepository productRepository, Vertx vertx) {
+        this.productRepository = productRepository;
         this.vertx = vertx;
+    }
+
+    public Uni<JsonObject> getProductById(String productId) {
+        if (productId == null || productId.isBlank()) {
+            return Uni.createFrom().failure(new ServiceException("Product ID must not be empty", 400));
+        }
+        return productRepository.findById(productId);
     }
 
     public Uni<JsonObject> getAllProducts() {
         log.info("Fetching all products...");
-
-        return Uni.createFrom()
-                .item(0)
+        return productRepository
+                .findAll()
                 .onItem()
-                .delayIt()
-                .by(Duration.ofMillis(150 + ThreadLocalRandom.current().nextInt(300)))
-                .onItem()
-                .transform(ignored -> {
-                    JsonArray products = new JsonArray()
-                            .add(new JsonObject()
-                                    .put("id", 1)
-                                    .put("name", "Laptop Pro")
-                                    .put("category", "Electronics")
-                                    .put("price", 1299.99)
-                                    .put("inStock", true)
-                                    .put("quantity", 45))
-                            .add(new JsonObject()
-                                    .put("id", 2)
-                                    .put("name", "Wireless Mouse")
-                                    .put("category", "Accessories")
-                                    .put("price", 29.99)
-                                    .put("inStock", true)
-                                    .put("quantity", 120))
-                            .add(new JsonObject()
-                                    .put("id", 3)
-                                    .put("name", "USB-C Hub")
-                                    .put("category", "Accessories")
-                                    .put("price", 49.99)
-                                    .put("inStock", false)
-                                    .put("quantity", 0));
-
+                .transform(productList -> {
+                    JsonArray products = new JsonArray();
+                    productList.forEach(products::add);
                     return new JsonObject()
                             .put("products", products)
                             .put("total", products.size())
@@ -70,61 +55,6 @@ public class ProductService {
                 .transform(throwable -> {
                     log.error("Error fetching products", throwable);
                     return new ServiceException("Failed to fetch products", 500);
-                });
-    }
-
-    public Uni<JsonObject> getProductById(String productId) {
-        if (productId == null || productId.isBlank()) {
-            return Uni.createFrom().failure(new ServiceException("Product ID must not be empty", 400));
-        }
-
-        log.info("Fetching product by ID: {}", productId);
-
-        return Uni.createFrom()
-                .item(productId)
-                .onItem()
-                .delayIt()
-                .by(Duration.ofMillis(75 + ThreadLocalRandom.current().nextInt(125)))
-                .onItem()
-                .transform(id -> {
-                    // Simulate product database lookup
-                    return switch (id) {
-                        case "1" -> new JsonObject()
-                                .put("id", 1)
-                                .put("name", "Laptop Pro")
-                                .put("category", "Electronics")
-                                .put("price", 1299.99)
-                                .put("description", "High-performance laptop with 16GB RAM and 512GB SSD")
-                                .put("inStock", true)
-                                .put("quantity", 45)
-                                .put("createdAt", "2024-01-01T10:00:00Z");
-                        case "2" -> new JsonObject()
-                                .put("id", 2)
-                                .put("name", "Wireless Mouse")
-                                .put("category", "Accessories")
-                                .put("price", 29.99)
-                                .put("description", "Ergonomic wireless mouse with precision tracking")
-                                .put("inStock", true)
-                                .put("quantity", 120)
-                                .put("createdAt", "2024-01-15T14:30:00Z");
-                        case "3" -> new JsonObject()
-                                .put("id", 3)
-                                .put("name", "USB-C Hub")
-                                .put("category", "Accessories")
-                                .put("price", 49.99)
-                                .put("description", "Multi-port USB-C hub with HDMI and USB 3.0 ports")
-                                .put("inStock", false)
-                                .put("quantity", 0)
-                                .put("createdAt", "2024-02-01T09:15:00Z");
-                        default -> throw new ServiceException("Product not found", 404);
-                    };
-                })
-                .onFailure(ServiceException.class)
-                .recoverWithUni(failure -> Uni.createFrom().failure(failure))
-                .onFailure()
-                .transform(throwable -> {
-                    log.error("Error fetching product: {}", productId, throwable);
-                    return new ServiceException("Failed to fetch product", 500);
                 });
     }
 

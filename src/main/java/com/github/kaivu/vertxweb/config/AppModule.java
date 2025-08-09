@@ -3,6 +3,8 @@ package com.github.kaivu.vertxweb.config;
 import com.github.kaivu.vertxweb.middlewares.AuthHandler;
 import com.github.kaivu.vertxweb.middlewares.ErrorHandler;
 import com.github.kaivu.vertxweb.middlewares.LoggingHandler;
+import com.github.kaivu.vertxweb.repositories.ProductRepository;
+import com.github.kaivu.vertxweb.repositories.ProductRepositoryImpl;
 import com.github.kaivu.vertxweb.services.ProductService;
 import com.github.kaivu.vertxweb.services.UserService;
 import com.github.kaivu.vertxweb.web.RouterHelper;
@@ -39,6 +41,9 @@ public class AppModule extends AbstractModule {
         // Bind external instances that cannot be created by Guice
         bind(Vertx.class).toInstance(vertx);
         bind(ApplicationConfig.class).toInstance(applicationConfig);
+
+        // Bind repositories
+        bind(ProductRepository.class).to(ProductRepositoryImpl.class).in(Singleton.class);
 
         // Bind services - these have @Inject constructors, so Guice handles creation
         bind(UserService.class).in(Singleton.class);

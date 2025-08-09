@@ -1,6 +1,7 @@
 package com.github.kaivu.vertxweb.web;
 
 import com.github.kaivu.vertxweb.constants.AppConstants;
+import com.github.kaivu.vertxweb.context.ContextAwareVertxWrapper;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import com.github.kaivu.vertxweb.web.validation.ValidationResult;
 import com.google.inject.Singleton;
@@ -37,7 +38,7 @@ public class RouterHelper {
     private static final String FULL_CONTENT_TYPE = CONTENT_TYPE + "; " + CHARSET;
 
     /**
-     * Static method for handling async routing with clean functional pattern.
+     * Static method for handling async routing with clean functional pattern and automatic correlation context.
      *
      * <p>Usage pattern:
      * router.get().handler(ctx -> RouterHelper.handleAsync(ctx, this::getAllUsers));
@@ -52,12 +53,45 @@ public class RouterHelper {
      * @param handler The async handler function that returns Uni<Void>
      */
     public static void handleAsync(RoutingContext ctx, Function<RoutingContext, Uni<Void>> handler) {
+        // Create context-aware wrapper for request traceability
+        ContextAwareVertxWrapper wrapper = ContextAwareVertxWrapper.fromHttpRequest(ctx.vertx(), ctx);
+
+        // Extract user context if available
+        String userId = ctx.user() != null ? ctx.user().principal().getString("sub") : null;
+        String tenantId = ctx.request().getHeader("X-Tenant-ID");
+
+        // Enrich correlation context
+        wrapper.getCorrelationContext().withUserId(userId).withTenantId(tenantId);
+
+        // Store wrapper in context for access in handlers
+        ctx.put("contextWrapper", wrapper);
+
+        wrapper.logEvent(
+                "request_received",
+                "method",
+                ctx.request().method().name(),
+                "path",
+                ctx.request().uri(),
+                "correlation_id",
+                wrapper.getCorrelationContext().getCorrelationId());
+
         try {
             handler.apply(ctx)
                     .subscribe()
                     .with(
                             ignored -> {
                                 // Success case - response should already be sent by handler
+                                wrapper.logEvent(
+                                        "request_completed",
+                                        "method",
+                                        ctx.request().method().name(),
+                                        "path",
+                                        ctx.request().uri(),
+                                        "duration_ms",
+                                        wrapper.getCorrelationContext().getProcessingDurationMs(),
+                                        "correlation_id",
+                                        wrapper.getCorrelationContext().getCorrelationId());
+
                                 if (!ctx.response().ended()) {
                                     log.warn(
                                             "Handler completed but response was not sent for: {} {}",
@@ -65,9 +99,9 @@ public class RouterHelper {
                                             ctx.request().uri());
                                 }
                             },
-                            failure -> handleFailure(ctx, failure));
+                            failure -> handleFailureWithContext(ctx, failure, wrapper));
         } catch (Exception e) {
-            handleFailure(ctx, e);
+            handleFailureWithContext(ctx, e, wrapper);
         }
     }
 
@@ -289,6 +323,41 @@ public class RouterHelper {
      */
     private static void handleFailure(RoutingContext ctx, Throwable throwable) {
         log.error("Request failed: {} {}", ctx.request().method(), ctx.request().uri(), throwable);
+
+        // This maintains consistency with the existing error handling pipeline
+        ctx.fail(throwable);
+    }
+
+    /**
+     * Handles failures with correlation context logging for enhanced error traceability.
+     *
+     * @param ctx The routing context
+     * @param throwable The failure/exception
+     * @param wrapper The context-aware wrapper for correlation tracking
+     */
+    private static void handleFailureWithContext(
+            RoutingContext ctx, Throwable throwable, ContextAwareVertxWrapper wrapper) {
+        wrapper.logEvent(
+                "request_failed",
+                "method",
+                ctx.request().method().name(),
+                "path",
+                ctx.request().uri(),
+                "error",
+                throwable.getMessage(),
+                "error_type",
+                throwable.getClass().getSimpleName(),
+                "duration_ms",
+                wrapper.getCorrelationContext().getProcessingDurationMs(),
+                "correlation_id",
+                wrapper.getCorrelationContext().getCorrelationId());
+
+        log.error(
+                "Request failed with correlation context - correlation_id: {}, method: {}, path: {}",
+                wrapper.getCorrelationContext().getCorrelationId(),
+                ctx.request().method(),
+                ctx.request().uri(),
+                throwable);
 
         // This maintains consistency with the existing error handling pipeline
         ctx.fail(throwable);
