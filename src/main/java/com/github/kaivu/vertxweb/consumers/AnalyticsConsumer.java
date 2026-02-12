@@ -1,12 +1,15 @@
 package com.github.kaivu.vertxweb.consumers;
 
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
-import com.github.kaivu.vertxweb.constants.AppConstants;
+import com.github.kaivu.vertxweb.constants.*;
 import com.github.kaivu.vertxweb.context.ContextAwareVertxWrapper;
 import com.github.kaivu.vertxweb.context.CorrelationContext;
+import com.github.kaivu.vertxweb.observability.tracing.TracingService;
+import com.github.kaivu.vertxweb.patterns.CircuitBreaker;
 import com.github.kaivu.vertxweb.patterns.CircuitBreakerRegistry;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import com.google.inject.Inject;
+import io.opentelemetry.api.trace.Span;
 import io.vertx.core.Vertx;
 import io.vertx.core.eventbus.EventBus;
 import io.vertx.core.eventbus.Message;
@@ -25,12 +28,18 @@ public class AnalyticsConsumer implements EventBusConsumer {
     private final Vertx vertx;
     private final ApplicationConfig appConfig;
     private final CircuitBreakerRegistry circuitBreakerRegistry;
+    private final TracingService tracingService;
 
     @Inject
-    public AnalyticsConsumer(Vertx vertx, ApplicationConfig appConfig, CircuitBreakerRegistry circuitBreakerRegistry) {
+    public AnalyticsConsumer(
+            Vertx vertx,
+            ApplicationConfig appConfig,
+            CircuitBreakerRegistry circuitBreakerRegistry,
+            TracingService tracingService) {
         this.vertx = vertx;
         this.appConfig = appConfig;
         this.circuitBreakerRegistry = circuitBreakerRegistry;
+        this.tracingService = tracingService;
     }
 
     @Override
@@ -45,21 +54,23 @@ public class AnalyticsConsumer implements EventBusConsumer {
 
     public void handle(Message<JsonObject> message) {
         ContextAwareVertxWrapper wrapper = null;
+        Span consumerSpan = Span.getInvalid();
         try {
             JsonObject requestData = message.body();
+            consumerSpan = tracingService.startEventBusConsumerSpan(getEventAddress(), requestData);
 
             // Extract correlation context from message
             wrapper = ContextAwareVertxWrapper.fromEventBusMessage(vertx, requestData);
             CorrelationContext context = wrapper.getCorrelationContext();
+            tracingService.enrichCorrelationContext(context, consumerSpan);
 
             // Make final references for lambda
             final ContextAwareVertxWrapper finalWrapper = wrapper;
             final CorrelationContext finalContext = context;
+            final Span finalConsumerSpan = consumerSpan;
 
-            // Set up logging context for structured logging
-            context.setupLoggingContext();
-
-            wrapper.logEvent("analytics_report_start", "operation", "analytics-report");
+            wrapper.logEvent(
+                    "analytics_report_start", JsonKeys.OPERATION, ProductConstants.LOG_OPERATION_ANALYTICS_REPORT);
 
             // Validate request data with context
             validateAnalyticsRequest(requestData, context);
@@ -72,11 +83,11 @@ public class AnalyticsConsumer implements EventBusConsumer {
                                     () -> generateAnalyticsReport(finalContext),
                                     error -> new ServiceException(
                                             "Analytics report generation failed",
-                                            AppConstants.Status.INTERNAL_SERVER_ERROR))
+                                            HttpStatusCodes.INTERNAL_SERVER_ERROR))
                             .ifNoItem()
                             .after(Duration.ofMillis(appConfig.analytics().executionTimeoutMs()))
                             .failWith(() -> new ServiceException(
-                                    "Analytics report generation timed out", AppConstants.Status.SERVICE_UNAVAILABLE)))
+                                    "Analytics report generation timed out", HttpStatusCodes.SERVICE_UNAVAILABLE)))
                     .subscribe()
                     .with(
                             report -> {
@@ -86,6 +97,7 @@ public class AnalyticsConsumer implements EventBusConsumer {
                                         finalContext.getProcessingDurationMs(),
                                         "correlation_id",
                                         finalContext.getCorrelationId());
+                                tracingService.endSpan(finalConsumerSpan, null);
                                 message.reply((report).encode());
                             },
                             error -> {
@@ -95,23 +107,20 @@ public class AnalyticsConsumer implements EventBusConsumer {
                                         error.getMessage(),
                                         "correlation_id",
                                         finalContext.getCorrelationId());
+                                tracingService.endSpan(finalConsumerSpan, error);
 
-                                if (error instanceof ServiceException) {
-                                    ServiceException se = (ServiceException) error;
-                                    message.fail(se.getStatusCode(), se.getMessage());
-                                } else {
-                                    message.fail(
-                                            AppConstants.Status.INTERNAL_SERVER_ERROR,
-                                            "Internal server error: " + error.getMessage());
-                                }
+                                ServiceException serviceError = normalizeFailure(error);
+                                message.fail(serviceError.getStatusCode(), serviceError.getMessage());
                             });
 
         } catch (ServiceException e) {
             log.error("Service error generating analytics report: {}", e.getMessage());
+            tracingService.endSpan(consumerSpan, e);
             message.fail(e.getStatusCode(), e.getMessage());
         } catch (Exception e) {
             log.error("Unexpected error generating analytics report", e);
-            message.fail(AppConstants.Status.INTERNAL_SERVER_ERROR, "Internal server error: " + e.getMessage());
+            tracingService.endSpan(consumerSpan, e);
+            message.fail(HttpStatusCodes.INTERNAL_SERVER_ERROR, "Internal server error: " + e.getMessage());
         } finally {
             // Always clean up logging context
             if (wrapper != null) {
@@ -122,28 +131,30 @@ public class AnalyticsConsumer implements EventBusConsumer {
 
     private void validateAnalyticsRequest(JsonObject requestData, CorrelationContext context) {
         if (requestData == null) {
-            throw new ServiceException("Request data cannot be null", AppConstants.Status.BAD_REQUEST);
+            throw new ServiceException("Request data cannot be null", HttpStatusCodes.BAD_REQUEST);
         }
 
         // Validate correlation context exists
         if (context == null || context.getCorrelationId() == null) {
-            throw new ServiceException("Correlation context is required", AppConstants.Status.BAD_REQUEST);
+            throw new ServiceException("Correlation context is required", HttpStatusCodes.BAD_REQUEST);
         }
 
-        String reportType = requestData.getString("reportType");
-        if (reportType == null || !reportType.equals("analytics")) {
-            throw new ServiceException("Invalid report type. Expected 'analytics'", AppConstants.Status.BAD_REQUEST);
+        String reportType = requestData.getString(ProductConstants.KEY_REPORT_TYPE);
+        if (reportType == null || !reportType.equals(ProductConstants.VALUE_REPORT_TYPE_ANALYTICS)) {
+            throw new ServiceException(
+                    "Invalid report type. Expected '" + ProductConstants.VALUE_REPORT_TYPE_ANALYTICS + "'",
+                    HttpStatusCodes.BAD_REQUEST);
         }
 
-        Long timestamp = requestData.getLong("timestamp");
+        Long timestamp = requestData.getLong(JsonKeys.TIMESTAMP);
         if (timestamp == null || timestamp <= 0) {
-            throw new ServiceException("Valid timestamp is required", AppConstants.Status.BAD_REQUEST);
+            throw new ServiceException("Valid timestamp is required", HttpStatusCodes.BAD_REQUEST);
         }
 
         // Check if request is not too old (e.g., more than 1 hour)
         long currentTime = System.currentTimeMillis();
         if (currentTime - timestamp > appConfig.analytics().requestExpirationMs()) { // Request expiration check
-            throw new ServiceException("Request has expired. Please generate a new request", AppConstants.Status.GONE);
+            throw new ServiceException("Request has expired. Please generate a new request", HttpStatusCodes.GONE);
         }
 
         log.debug("Analytics request validated for correlation: {}", context.getCorrelationId());
@@ -168,10 +179,10 @@ public class AnalyticsConsumer implements EventBusConsumer {
                             + appConfig.analytics().minOrderValue();
 
             return new JsonObject()
-                    .put("correlationId", context.getCorrelationId())
+                    .put(JsonKeys.CORRELATION_ID, context.getCorrelationId())
                     .put("requestId", context.getRequestId())
-                    .put("reportType", "analytics")
-                    .put("generatedAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
+                    .put(ProductConstants.KEY_REPORT_TYPE, ProductConstants.VALUE_REPORT_TYPE_ANALYTICS)
+                    .put(JsonKeys.GENERATED_AT, LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
                     .put("processingTimeMs", context.getProcessingDurationMs())
                     .put("totalProducts", totalProducts)
                     .put("totalRevenue", totalRevenue)
@@ -179,11 +190,36 @@ public class AnalyticsConsumer implements EventBusConsumer {
                     .put("averageOrderValue", averageOrderValue)
                     .put("userId", context.getUserId())
                     .put("tenantId", context.getTenantId())
-                    .put("status", "completed");
+                    .put(JsonKeys.STATUS, OutcomeConstants.COMPLETED);
 
         } catch (Exception e) {
             throw new ServiceException(
-                    "Report generation failed: " + e.getMessage(), AppConstants.Status.SERVICE_UNAVAILABLE);
+                    "Report generation failed: " + e.getMessage(), HttpStatusCodes.SERVICE_UNAVAILABLE);
         }
+    }
+
+    private ServiceException normalizeFailure(Throwable error) {
+        if (error instanceof ServiceException serviceException) {
+            return serviceException;
+        }
+
+        Throwable rootCause = unwrapRootCause(error);
+        if (rootCause instanceof CircuitBreaker.CircuitBreakerOpenException) {
+            return new ServiceException("Service temporarily unavailable", HttpStatusCodes.SERVICE_UNAVAILABLE);
+        }
+        if (rootCause instanceof CircuitBreaker.CircuitBreakerTimeoutException) {
+            return new ServiceException("Upstream dependency timed out", HttpStatusCodes.GATEWAY_TIMEOUT);
+        }
+
+        String message = error != null && error.getMessage() != null ? error.getMessage() : "Unexpected internal error";
+        return new ServiceException("Internal server error: " + message, HttpStatusCodes.INTERNAL_SERVER_ERROR);
+    }
+
+    private Throwable unwrapRootCause(Throwable failure) {
+        Throwable current = failure;
+        while (current != null && current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+        return current != null ? current : failure;
     }
 }

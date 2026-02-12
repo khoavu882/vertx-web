@@ -19,6 +19,7 @@ Reactive Vert.x + Guice demo backend with dual-verticle runtime and EventBus-dri
 - Format check: `./gradlew spotlessCheck`
 - Format apply: `./gradlew spotlessApply`
 - Full validation: `./gradlew clean check`
+- Generate OpenAPI artifacts: `./gradlew generateOpenApiSpec`
 
 ## Architecture Overview
 
@@ -70,6 +71,10 @@ Core API routes:
   - Optional detailed endpoint when enabled: `GET /health/detailed`
 - Conditionally public:
   - `GET /metrics` is public only when `app.observability.metrics.exposure=open`
+- Public API docs:
+  - `GET /openapi.yaml`
+  - `GET /openapi.json`
+  - `GET /docs` (Swagger UI)
 - Protected by auth middleware:
   - `GET /api/users`
   - `GET /api/users/:id`
@@ -123,6 +128,7 @@ Key directories:
 - `src/main/java/com/github/kaivu/vertxweb/config` for config mapping, loader, DI module
 - `src/main/java/com/github/kaivu/vertxweb/verticles` for app/worker verticle entrypoints
 - `src/main/java/com/github/kaivu/vertxweb/web` for router config, REST routers, validation
+- `src/main/resources/META-INF/openapi.yaml` for source OpenAPI contract
 - `src/main/java/com/github/kaivu/vertxweb/consumers` for worker-side EventBus handlers
 - `src/main/java/com/github/kaivu/vertxweb/services` for business service logic
 - `src/main/java/com/github/kaivu/vertxweb/patterns` for circuit breaker and registry
@@ -177,6 +183,7 @@ Current covered contracts:
 - `/metrics` auth behavior (`protected` vs `open`)
 - Health canonical routes
 - Health alias enable/disable behavior
+- OpenAPI/docs endpoint exposure (`/openapi.yaml`, `/openapi.json`, `/docs`)
 
 ## Important Note
 
@@ -186,4 +193,5 @@ Security is intentionally weak for demo/boilerplate use. Replace auth behavior i
 
 - [Vert.x Docs](https://vertx.io/docs/)
 - [SmallRye Config](https://smallrye.io/smallrye-config/)
+- [SmallRye OpenAPI](https://github.com/smallrye/smallrye-open-api)
 - [Micrometer](https://micrometer.io/)

@@ -1,7 +1,6 @@
 package com.github.kaivu.vertxweb.verticles;
 
 import com.github.kaivu.vertxweb.config.AppModule;
-import com.github.kaivu.vertxweb.config.ApplicationConfig;
 import com.github.kaivu.vertxweb.consumers.AnalyticsConsumer;
 import com.github.kaivu.vertxweb.consumers.BatchOperationConsumer;
 import com.github.kaivu.vertxweb.consumers.EventBusConsumer;
@@ -25,12 +24,11 @@ public class WorkerVerticle extends AbstractVerticle {
     public void start(Promise<Void> startPromise) {
         // Create Guice injector with all dependencies
         Injector injector = Guice.createInjector(new AppModule(vertx));
-        ApplicationConfig appConfig = injector.getInstance(ApplicationConfig.class);
 
         EventBus eventBus = vertx.eventBus();
 
         // Initialize all consumer classes with dependency injection
-        List<EventBusConsumer> consumers = createConsumers(appConfig, injector);
+        List<EventBusConsumer> consumers = createConsumers(injector);
 
         // Register all consumers
         consumers.forEach(consumer -> {
@@ -42,11 +40,11 @@ public class WorkerVerticle extends AbstractVerticle {
         log.info("WorkerVerticle started successfully with {} consumers", consumers.size());
     }
 
-    private List<EventBusConsumer> createConsumers(ApplicationConfig appConfig, Injector injector) {
+    private List<EventBusConsumer> createConsumers(Injector injector) {
         List<EventBusConsumer> consumers = new ArrayList<>();
 
         // Add all business consumers with proper dependency injection
-        consumers.add(new LegacyOperationConsumer());
+        consumers.add(injector.getInstance(LegacyOperationConsumer.class));
         consumers.add(injector.getInstance(AnalyticsConsumer.class));
         consumers.add(injector.getInstance(BatchOperationConsumer.class));
         consumers.add(injector.getInstance(HealthCheckConsumer.class));

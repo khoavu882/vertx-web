@@ -1,12 +1,15 @@
 package com.github.kaivu.vertxweb.web.routes;
 
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
+import com.github.kaivu.vertxweb.constants.*;
 import com.github.kaivu.vertxweb.middlewares.AuthHandler;
 import com.github.kaivu.vertxweb.middlewares.ErrorHandler;
 import com.github.kaivu.vertxweb.middlewares.LoggingHandler;
+import com.github.kaivu.vertxweb.observability.tracing.TracingService;
 import com.github.kaivu.vertxweb.web.rests.CommonRouter;
 import com.github.kaivu.vertxweb.web.rests.HealthRouter;
 import com.github.kaivu.vertxweb.web.rests.MetricsRouter;
+import com.github.kaivu.vertxweb.web.rests.OpenApiRouter;
 import com.github.kaivu.vertxweb.web.rests.ProductRouter;
 import com.github.kaivu.vertxweb.web.rests.UserRouter;
 import com.google.inject.Inject;
@@ -30,9 +33,12 @@ public class RouterConfig {
     private static final Logger log = LoggerFactory.getLogger(RouterConfig.class);
     private static final Set<String> ALLOWED_HEADERS = new HashSet<>(Arrays.asList(
             HttpHeaders.CONTENT_TYPE.toString(),
-            HttpHeaders.AUTHORIZATION.toString(),
-            "X-Tenant-ID",
-            "X-Correlation-ID"));
+            HttpConstants.AUTHORIZATION,
+            HttpConstants.X_TENANT_ID,
+            HttpConstants.X_CORRELATION_ID,
+            TracingService.HEADER_TRACE_ID,
+            HttpConstants.TRACEPARENT,
+            HttpConstants.TRACESTATE));
     private static final Set<HttpMethod> ALLOWED_METHODS = new HashSet<>(
             Arrays.asList(HttpMethod.GET, HttpMethod.POST, HttpMethod.PUT, HttpMethod.DELETE, HttpMethod.OPTIONS));
 
@@ -48,6 +54,7 @@ public class RouterConfig {
     private final CommonRouter commonRouter;
     private final HealthRouter healthRouter;
     private final MetricsRouter metricsRouter;
+    private final OpenApiRouter openApiRouter;
     private final UserRouter userRouter;
     private final ProductRouter productRouter;
 
@@ -62,6 +69,7 @@ public class RouterConfig {
             CommonRouter commonRouter,
             HealthRouter healthRouter,
             MetricsRouter metricsRouter,
+            OpenApiRouter openApiRouter,
             UserRouter userRouter,
             ProductRouter productRouter) {
         this.vertx = vertx;
@@ -73,6 +81,7 @@ public class RouterConfig {
         this.commonRouter = commonRouter;
         this.healthRouter = healthRouter;
         this.metricsRouter = metricsRouter;
+        this.openApiRouter = openApiRouter;
         this.userRouter = userRouter;
         this.productRouter = productRouter;
 
@@ -91,15 +100,19 @@ public class RouterConfig {
         String apiPrefix = appConfig.server().apiPrefix();
 
         // Public routes (bypassing authentication)
-        router.route(apiPrefix + "/common/*").subRouter(commonRouter.getRouter());
+        router.route(apiPrefix + PathConstants.COMMON_ROOT + PathConstants.ANY_ROOT)
+                .subRouter(commonRouter.getRouter());
 
-        // Health check routes (public, no authentication required)
-        healthRouter.configureRoutes(router);
-        metricsRouter.configureRoutes(router);
+        // Infrastructure routes (public) mounted via dedicated sub-routers
+        router.route(PathConstants.ANY_ROOT).subRouter(healthRouter.getRouter());
+        router.route(PathConstants.ANY_ROOT).subRouter(metricsRouter.getRouter());
+        router.route(PathConstants.ANY_ROOT).subRouter(openApiRouter.getRouter());
 
         // Protected routes
-        router.route(apiPrefix + "/users/*").subRouter(userRouter.getRouter());
-        router.route(apiPrefix + "/products/*").subRouter(productRouter.getRouter());
+        router.route(apiPrefix + PathConstants.USERS_ROOT + PathConstants.ANY_ROOT)
+                .subRouter(userRouter.getRouter());
+        router.route(apiPrefix + PathConstants.PRODUCTS_ROOT + PathConstants.ANY_ROOT)
+                .subRouter(productRouter.getRouter());
 
         log.info(
                 "RouterConfig initialized with API prefix: {} and health endpoints",

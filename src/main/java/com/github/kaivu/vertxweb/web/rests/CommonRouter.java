@@ -1,6 +1,6 @@
 package com.github.kaivu.vertxweb.web.rests;
 
-import com.github.kaivu.vertxweb.constants.AppConstants;
+import com.github.kaivu.vertxweb.constants.*;
 import com.github.kaivu.vertxweb.web.RouterHelper;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
@@ -32,7 +32,7 @@ public class CommonRouter {
                 .put("status", "success")
                 .put("timestamp", System.currentTimeMillis());
 
-        RouterHelper.sendJsonResponse(ctx, AppConstants.Status.OK, response);
+        RouterHelper.sendJsonResponse(ctx, HttpStatusCodes.OK, response);
         return Uni.createFrom().voidItem();
     }
 }

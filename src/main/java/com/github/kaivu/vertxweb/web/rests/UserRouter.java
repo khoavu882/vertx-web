@@ -1,7 +1,7 @@
 package com.github.kaivu.vertxweb.web.rests;
 
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
-import com.github.kaivu.vertxweb.constants.AppConstants;
+import com.github.kaivu.vertxweb.constants.*;
 import com.github.kaivu.vertxweb.services.UserService;
 import com.github.kaivu.vertxweb.web.RouterHelper;
 import com.github.kaivu.vertxweb.web.validation.ValidationResult;
@@ -50,7 +50,7 @@ public class UserRouter {
         return userService
                 .getAllUsersWithContext(ctx)
                 .onItem()
-                .invoke(users -> RouterHelper.sendJsonResponse(ctx, AppConstants.Status.OK, users))
+                .invoke(users -> RouterHelper.sendJsonResponse(ctx, HttpStatusCodes.OK, users))
                 .replaceWithVoid();
     }
 
@@ -65,7 +65,7 @@ public class UserRouter {
         return userService
                 .getUserByIdWithContext(userId, ctx)
                 .onItem()
-                .invoke(user -> RouterHelper.sendJsonResponse(ctx, AppConstants.Status.OK, user))
+                .invoke(user -> RouterHelper.sendJsonResponse(ctx, HttpStatusCodes.OK, user))
                 .replaceWithVoid();
     }
 
@@ -88,7 +88,7 @@ public class UserRouter {
                     JsonObject response = new JsonObject()
                             .put("message", "User created successfully")
                             .put("user", newUser);
-                    RouterHelper.sendJsonResponse(ctx, AppConstants.Status.CREATED, response);
+                    RouterHelper.sendJsonResponse(ctx, HttpStatusCodes.CREATED, response);
                 })
                 .replaceWithVoid();
     }
@@ -111,7 +111,7 @@ public class UserRouter {
                     JsonObject response = new JsonObject()
                             .put("message", "User updated successfully")
                             .put("user", updatedUser);
-                    RouterHelper.sendJsonResponse(ctx, AppConstants.Status.OK, response);
+                    RouterHelper.sendJsonResponse(ctx, HttpStatusCodes.OK, response);
                 })
                 .replaceWithVoid();
     }
@@ -123,7 +123,7 @@ public class UserRouter {
         return userService
                 .deleteUserWithContext(userId, ctx)
                 .onItem()
-                .invoke(result -> RouterHelper.sendJsonResponse(ctx, AppConstants.Status.OK, result))
+                .invoke(result -> RouterHelper.sendJsonResponse(ctx, HttpStatusCodes.OK, result))
                 .replaceWithVoid();
     }
 }

@@ -5,7 +5,7 @@
 
 app:
   server:
-    port: 8080
+    port: 8081
     host: 0.0.0.0
     request-timeout-ms: 30000
     api-prefix: /api
@@ -33,6 +33,10 @@ app:
   
   service:
     default-timeout-ms: 500
+    circuit-breaker-failure-threshold: 5
+    circuit-breaker-success-threshold: 3
+    circuit-breaker-timeout-ms: 10000
+    circuit-breaker-reset-timeout-ms: 60000
     base-delay-ms: 100
     max-delay-variance-ms: 200
     min-id-range: 1000
@@ -59,6 +63,11 @@ app:
     max-order-value: 500
     min-order-value: 50
     request-expiration-ms: 3600000
+
+  event-bus:
+    health-check-address: app.health.check
+    batch-operation-address: app.worker.batch-operation
+    legacy-operation-address: app.worker.operation
   
   validation:
     max-name-length: 100
@@ -89,3 +98,9 @@ app:
       exposure: protected
       include-jvm: true
       include-system: true
+    tracing:
+      enable: true
+      service-name: vertx-web
+      exporter: logging
+      otlp-endpoint: http://localhost:4317
+      sampling-ratio: 1.0

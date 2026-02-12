@@ -1,8 +1,9 @@
 package com.github.kaivu.vertxweb.services;
 
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
-import com.github.kaivu.vertxweb.constants.AppConstants;
+import com.github.kaivu.vertxweb.constants.*;
 import com.github.kaivu.vertxweb.context.ContextAwareVertxWrapper;
+import com.github.kaivu.vertxweb.patterns.CircuitBreakerRegistry;
 import com.github.kaivu.vertxweb.repositories.ProductRepository;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import com.google.inject.Inject;
@@ -29,12 +30,18 @@ public class ProductService {
     private final ProductRepository productRepository;
     private final Vertx vertx;
     private final ApplicationConfig appConfig;
+    private final CircuitBreakerRegistry circuitBreakerRegistry;
 
     @Inject
-    public ProductService(ProductRepository productRepository, Vertx vertx, ApplicationConfig appConfig) {
+    public ProductService(
+            ProductRepository productRepository,
+            Vertx vertx,
+            ApplicationConfig appConfig,
+            CircuitBreakerRegistry circuitBreakerRegistry) {
         this.productRepository = productRepository;
         this.vertx = vertx;
         this.appConfig = appConfig;
+        this.circuitBreakerRegistry = circuitBreakerRegistry;
     }
 
     public Uni<JsonObject> getProductById(String productId) {
@@ -44,16 +51,18 @@ public class ProductService {
     public Uni<JsonObject> getProductByIdWithContext(String productId, RoutingContext ctx) {
         if (productId == null || productId.isBlank()) {
             return Uni.createFrom()
-                    .failure(new ServiceException("Product ID must not be empty", AppConstants.Status.BAD_REQUEST));
+                    .failure(new ServiceException("Product ID must not be empty", HttpStatusCodes.BAD_REQUEST));
         }
 
-        ContextAwareVertxWrapper wrapper = ctx != null ? (ContextAwareVertxWrapper) ctx.get("contextWrapper") : null;
+        ContextAwareVertxWrapper wrapper =
+                ctx != null ? (ContextAwareVertxWrapper) ctx.get(ContextKeys.ROUTING_CONTEXT_WRAPPER) : null;
 
         if (wrapper != null) {
             wrapper.logEvent("service_operation_start", "operation", "getProductById", "productId", productId);
         }
 
-        Uni<JsonObject> result = productRepository.findById(productId);
+        Uni<JsonObject> result =
+                circuitBreakerRegistry.getDatabaseCircuitBreaker().execute(() -> performGetProductById(productId));
 
         if (wrapper != null) {
             wrapper.logEvent("service_operation_completed", "operation", "getProductById", "productId", productId);
@@ -67,7 +76,8 @@ public class ProductService {
     }
 
     public Uni<JsonObject> getAllProductsWithContext(RoutingContext ctx) {
-        ContextAwareVertxWrapper wrapper = ctx != null ? (ContextAwareVertxWrapper) ctx.get("contextWrapper") : null;
+        ContextAwareVertxWrapper wrapper =
+                ctx != null ? (ContextAwareVertxWrapper) ctx.get(ContextKeys.ROUTING_CONTEXT_WRAPPER) : null;
 
         if (wrapper != null) {
             wrapper.logEvent("service_operation_start", "operation", "getAllProducts");
@@ -75,7 +85,8 @@ public class ProductService {
 
         log.info("Fetching all products...");
 
-        Uni<JsonObject> result = performGetAllProducts();
+        Uni<JsonObject> result =
+                circuitBreakerRegistry.getDatabaseCircuitBreaker().execute(() -> performGetAllProducts());
 
         if (wrapper != null) {
             wrapper.logEvent("service_operation_completed", "operation", "getAllProducts");
@@ -98,9 +109,22 @@ public class ProductService {
                 })
                 .onFailure()
                 .transform(throwable -> {
+                    if (throwable instanceof ServiceException) {
+                        return throwable;
+                    }
                     log.error("Error fetching products", throwable);
-                    return new ServiceException("Failed to fetch products", AppConstants.Status.INTERNAL_SERVER_ERROR);
+                    return new ServiceException("Failed to fetch products", HttpStatusCodes.INTERNAL_SERVER_ERROR);
                 });
+    }
+
+    private Uni<JsonObject> performGetProductById(String productId) {
+        return productRepository.findById(productId).onFailure().transform(throwable -> {
+            if (throwable instanceof ServiceException) {
+                return throwable;
+            }
+            log.error("Error fetching product by ID: {}", productId, throwable);
+            return new ServiceException("Failed to fetch product", HttpStatusCodes.INTERNAL_SERVER_ERROR);
+        });
     }
 
     public Uni<JsonObject> createProduct(JsonObject product) {
@@ -110,7 +134,7 @@ public class ProductService {
     public Uni<JsonObject> createProductWithContext(JsonObject product, RoutingContext ctx) {
         if (product == null || product.isEmpty()) {
             return Uni.createFrom()
-                    .failure(new ServiceException("Product data must not be empty", AppConstants.Status.BAD_REQUEST));
+                    .failure(new ServiceException("Product data must not be empty", HttpStatusCodes.BAD_REQUEST));
         }
 
         String name = product.getString("name");
@@ -119,19 +143,19 @@ public class ProductService {
 
         if (name == null || name.isBlank()) {
             return Uni.createFrom()
-                    .failure(new ServiceException("Product name is required", AppConstants.Status.BAD_REQUEST));
+                    .failure(new ServiceException("Product name is required", HttpStatusCodes.BAD_REQUEST));
         }
         if (category == null || category.isBlank()) {
             return Uni.createFrom()
-                    .failure(new ServiceException("Product category is required", AppConstants.Status.BAD_REQUEST));
+                    .failure(new ServiceException("Product category is required", HttpStatusCodes.BAD_REQUEST));
         }
         if (price == null || price <= 0) {
             return Uni.createFrom()
-                    .failure(new ServiceException(
-                            "Product price must be greater than 0", AppConstants.Status.BAD_REQUEST));
+                    .failure(new ServiceException("Product price must be greater than 0", HttpStatusCodes.BAD_REQUEST));
         }
 
-        ContextAwareVertxWrapper wrapper = ctx != null ? (ContextAwareVertxWrapper) ctx.get("contextWrapper") : null;
+        ContextAwareVertxWrapper wrapper =
+                ctx != null ? (ContextAwareVertxWrapper) ctx.get(ContextKeys.ROUTING_CONTEXT_WRAPPER) : null;
 
         if (wrapper != null) {
             wrapper.logEvent("service_operation_start", "operation", "createProduct", "productName", name);
@@ -139,7 +163,8 @@ public class ProductService {
 
         log.info("Creating new product: {}", name);
 
-        Uni<JsonObject> result = performCreateProduct(product);
+        Uni<JsonObject> result =
+                circuitBreakerRegistry.getDatabaseCircuitBreaker().execute(() -> performCreateProduct(product));
 
         if (wrapper != null) {
             wrapper.logEvent("service_operation_completed", "operation", "createProduct", "productName", name);
@@ -175,8 +200,11 @@ public class ProductService {
                 })
                 .onFailure()
                 .transform(throwable -> {
+                    if (throwable instanceof ServiceException) {
+                        return throwable;
+                    }
                     log.error("Error creating product", throwable);
-                    return new ServiceException("Failed to create product", AppConstants.Status.INTERNAL_SERVER_ERROR);
+                    return new ServiceException("Failed to create product", HttpStatusCodes.INTERNAL_SERVER_ERROR);
                 });
     }
 
@@ -187,14 +215,15 @@ public class ProductService {
     public Uni<JsonObject> updateProductStockWithContext(String productId, int newQuantity, RoutingContext ctx) {
         if (productId == null || productId.isBlank()) {
             return Uni.createFrom()
-                    .failure(new ServiceException("Product ID must not be empty", AppConstants.Status.BAD_REQUEST));
+                    .failure(new ServiceException("Product ID must not be empty", HttpStatusCodes.BAD_REQUEST));
         }
         if (newQuantity < 0) {
             return Uni.createFrom()
-                    .failure(new ServiceException("Quantity cannot be negative", AppConstants.Status.BAD_REQUEST));
+                    .failure(new ServiceException("Quantity cannot be negative", HttpStatusCodes.BAD_REQUEST));
         }
 
-        ContextAwareVertxWrapper wrapper = ctx != null ? (ContextAwareVertxWrapper) ctx.get("contextWrapper") : null;
+        ContextAwareVertxWrapper wrapper =
+                ctx != null ? (ContextAwareVertxWrapper) ctx.get(ContextKeys.ROUTING_CONTEXT_WRAPPER) : null;
 
         if (wrapper != null) {
             wrapper.logEvent(
@@ -209,7 +238,7 @@ public class ProductService {
 
         log.info("Updating stock for product: {} to quantity: {}", productId, newQuantity);
 
-        return getProductByIdWithContext(productId, ctx)
+        return circuitBreakerRegistry.getDatabaseCircuitBreaker().execute(() -> performGetProductById(productId)
                 .onItem()
                 .delayIt()
                 .by(Duration.ofMillis(appConfig.service().baseDelayMs()
@@ -230,7 +259,7 @@ public class ProductService {
                     }
                     log.error("Error updating product stock: {}", productId, throwable);
                     return new ServiceException(
-                            "Failed to update product stock", AppConstants.Status.INTERNAL_SERVER_ERROR);
-                });
+                            "Failed to update product stock", HttpStatusCodes.INTERNAL_SERVER_ERROR);
+                }));
     }
 }

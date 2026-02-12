@@ -34,7 +34,13 @@ public class CircuitBreakerRegistry {
 
     private void initializeDefaultCircuitBreakers() {
         // Database operations circuit breaker
-        createCircuitBreaker("database", CircuitBreakerConfig.defaultConfig());
+        createCircuitBreaker(
+                "database",
+                CircuitBreakerConfig.create(
+                        appConfig.service().circuitBreakerFailureThreshold(),
+                        appConfig.service().circuitBreakerSuccessThreshold(),
+                        appConfig.service().circuitBreakerTimeoutMs(),
+                        appConfig.service().circuitBreakerResetTimeoutMs()));
 
         // External API circuit breaker (more sensitive)
         createCircuitBreaker("external-api", CircuitBreakerConfig.fastFail());

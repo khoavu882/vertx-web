@@ -1,11 +1,14 @@
 package com.github.kaivu.vertxweb.web.rests;
 
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
+import com.github.kaivu.vertxweb.constants.*;
 import com.github.kaivu.vertxweb.observability.metrics.MetricsScrapeEndpoint;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
+import io.vertx.core.Vertx;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
+import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,13 +19,18 @@ public class MetricsRouter {
     private final ApplicationConfig appConfig;
     private final MetricsScrapeEndpoint metricsScrapeEndpoint;
 
+    @Getter
+    private final Router router;
+
     @Inject
-    public MetricsRouter(ApplicationConfig appConfig, MetricsScrapeEndpoint metricsScrapeEndpoint) {
+    public MetricsRouter(Vertx vertx, ApplicationConfig appConfig, MetricsScrapeEndpoint metricsScrapeEndpoint) {
         this.appConfig = appConfig;
         this.metricsScrapeEndpoint = metricsScrapeEndpoint;
+        this.router = Router.router(vertx);
+        initializeRoutes();
     }
 
-    public void configureRoutes(Router router) {
+    private void initializeRoutes() {
         if (!appConfig.observability().metrics().enable()) {
             log.info("Metrics endpoint is disabled by configuration.");
             return;
@@ -41,7 +49,7 @@ public class MetricsRouter {
 
     private String normalizePath(String path) {
         if (path == null || path.isBlank()) {
-            return "/metrics";
+            return PathConstants.METRICS_ROOT;
         }
         String normalized = path.trim();
         return normalized.startsWith("/") ? normalized : "/" + normalized;

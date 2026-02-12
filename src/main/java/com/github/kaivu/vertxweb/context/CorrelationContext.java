@@ -76,6 +76,10 @@ public class CorrelationContext {
         return (String) context.get(TRACE_ID);
     }
 
+    public String getSpanId() {
+        return (String) context.get(SPAN_ID);
+    }
+
     public Long getStartTime() {
         return (Long) context.get(START_TIME);
     }
@@ -137,6 +141,7 @@ public class CorrelationContext {
         if (getUserId() != null) MDC.put(USER_ID, getUserId());
         if (getTenantId() != null) MDC.put(TENANT_ID, getTenantId());
         if (getTraceId() != null) MDC.put(TRACE_ID, getTraceId());
+        if (getSpanId() != null) MDC.put(SPAN_ID, getSpanId());
     }
 
     /**

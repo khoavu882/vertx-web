@@ -1,9 +1,11 @@
 package com.github.kaivu.vertxweb.middlewares;
 
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
-import com.github.kaivu.vertxweb.constants.AppConstants;
+import com.github.kaivu.vertxweb.constants.*;
 import com.github.kaivu.vertxweb.context.ContextAwareVertxWrapper;
 import com.github.kaivu.vertxweb.context.CorrelationContext;
+import com.github.kaivu.vertxweb.observability.tracing.TracingService;
+import com.github.kaivu.vertxweb.patterns.CircuitBreaker;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
@@ -33,17 +35,23 @@ public class ErrorHandler {
     }
 
     public void handle(RoutingContext ctx) {
-        Throwable failure = ctx.failure();
-        int statusCode = AppConstants.Status.INTERNAL_SERVER_ERROR;
+        Throwable originalFailure = ctx.failure();
+        Throwable failure = normalizeFailure(originalFailure);
+        int statusCode = HttpStatusCodes.INTERNAL_SERVER_ERROR;
         String message = "Internal Server Error";
         String errorId = UUID.randomUUID().toString();
 
         // Extract correlation context if available
-        ContextAwareVertxWrapper wrapper = ctx.get("contextWrapper");
+        ContextAwareVertxWrapper wrapper = ctx.get(ContextKeys.ROUTING_CONTEXT_WRAPPER);
         String correlationId = null;
+        String traceId = null;
         if (wrapper != null) {
             CorrelationContext context = wrapper.getCorrelationContext();
             correlationId = context.getCorrelationId();
+            traceId = context.getTraceId();
+        }
+        if (traceId == null) {
+            traceId = ctx.get(TracingService.ROUTING_TRACE_ID_KEY);
         }
 
         // Determine error type and status
@@ -53,13 +61,23 @@ public class ErrorHandler {
 
             // Log service exceptions at appropriate level
             if (statusCode >= 500) {
-                log.error("Service error [{}] correlationId={}: {}", errorId, correlationId, message, failure);
+                log.error(
+                        "Service error [{}] correlationId={}: {}",
+                        errorId,
+                        correlationId,
+                        message,
+                        originalFailure != null ? originalFailure : failure);
             } else {
                 log.warn("Client error [{}] correlationId={}: {}", errorId, correlationId, message);
             }
         } else if (failure != null) {
             message = failure.getMessage() != null ? failure.getMessage() : "Unexpected server error";
-            log.error("Unexpected error [{}] correlationId={}: {}", errorId, correlationId, message, failure);
+            log.error(
+                    "Unexpected error [{}] correlationId={}: {}",
+                    errorId,
+                    correlationId,
+                    message,
+                    originalFailure != null ? originalFailure : failure);
         } else {
             // Handle cases where failure is null but status code indicates error
             int responseStatus = ctx.response().getStatusCode();
@@ -100,19 +118,25 @@ public class ErrorHandler {
         if (correlationId != null) {
             errorResponse.put("correlationId", correlationId);
         }
+        if (traceId != null) {
+            errorResponse.put("traceId", traceId);
+        }
 
         // Only expose stack traces when explicitly enabled.
         if (applicationConfig.logging().includeStackTraceInErrorResponse()) {
-            errorResponse.put("stackTrace", getStackTrace(failure));
+            errorResponse.put("stackTrace", getStackTrace(originalFailure != null ? originalFailure : failure));
         }
 
         // Set appropriate headers and respond
-        ctx.response()
+        io.vertx.core.http.HttpServerResponse response = ctx.response()
                 .setStatusCode(statusCode)
-                .putHeader("Content-Type", AppConstants.Http.CONTENT_TYPE_JSON)
-                .putHeader("X-Error-ID", errorId)
-                .putHeader("X-Correlation-ID", correlationId != null ? correlationId : "none")
-                .end(errorResponse.encode());
+                .putHeader("Content-Type", HttpConstants.CONTENT_TYPE_JSON)
+                .putHeader(HttpConstants.X_ERROR_ID, errorId)
+                .putHeader(HttpConstants.X_CORRELATION_ID, correlationId != null ? correlationId : "none");
+        if (traceId != null) {
+            response.putHeader(TracingService.HEADER_TRACE_ID, traceId);
+        }
+        response.end(errorResponse.encode());
     }
 
     private String getStandardErrorMessage(int statusCode) {
@@ -134,6 +158,30 @@ public class ErrorHandler {
             case 504 -> "Gateway Timeout";
             default -> "HTTP Error " + statusCode;
         };
+    }
+
+    private Throwable normalizeFailure(Throwable failure) {
+        if (failure == null) {
+            return null;
+        }
+
+        Throwable rootCause = unwrapRootCause(failure);
+        if (rootCause instanceof CircuitBreaker.CircuitBreakerOpenException) {
+            return new ServiceException("Service temporarily unavailable", HttpStatusCodes.SERVICE_UNAVAILABLE);
+        }
+        if (rootCause instanceof CircuitBreaker.CircuitBreakerTimeoutException) {
+            return new ServiceException("Upstream dependency timed out", HttpStatusCodes.GATEWAY_TIMEOUT);
+        }
+
+        return failure;
+    }
+
+    private Throwable unwrapRootCause(Throwable failure) {
+        Throwable current = failure;
+        while (current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+        return current;
     }
 
     private String getStackTrace(Throwable failure) {

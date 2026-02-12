@@ -1,7 +1,7 @@
 package com.github.kaivu.vertxweb.web.rests;
 
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
-import com.github.kaivu.vertxweb.constants.AppConstants;
+import com.github.kaivu.vertxweb.constants.*;
 import com.github.kaivu.vertxweb.observability.health.CheckResult;
 import com.github.kaivu.vertxweb.observability.health.CheckStatus;
 import com.github.kaivu.vertxweb.observability.health.HealthPayload;
@@ -13,6 +13,7 @@ import io.smallrye.mutiny.Uni;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.eventbus.DeliveryOptions;
+import io.vertx.core.http.HttpHeaders;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
@@ -21,6 +22,7 @@ import java.lang.management.MemoryMXBean;
 import java.lang.management.MemoryUsage;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import lombok.Getter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,13 +30,15 @@ import org.slf4j.LoggerFactory;
 public class HealthRouter {
 
     private static final Logger log = LoggerFactory.getLogger(HealthRouter.class);
-    private static final String HEALTH_CHECK_EVENT = "app.health.check";
 
     private final Vertx vertx;
     private final ApplicationConfig appConfig;
     private final ProbeOrchestrator probeOrchestrator;
     private final MetricsFacade metricsFacade;
     private final long startTime;
+
+    @Getter
+    private final Router router;
 
     @Inject
     public HealthRouter(
@@ -47,26 +51,28 @@ public class HealthRouter {
         this.probeOrchestrator = probeOrchestrator;
         this.metricsFacade = metricsFacade;
         this.startTime = System.currentTimeMillis();
+        this.router = Router.router(vertx);
+        initializeRoutes();
     }
 
-    public void configureRoutes(Router router) {
+    private void initializeRoutes() {
         if (!appConfig.observability().health().enable()) {
             log.info("Health endpoints are disabled by configuration.");
             return;
         }
 
-        router.get("/health").handler(this::overallHealthCheck);
-        router.get("/health/live").handler(this::liveHealthCheck);
-        router.get("/health/ready").handler(this::readyHealthCheck);
-        router.get("/health/started").handler(this::startedHealthCheck);
+        router.get(HealthConstants.ROUTE_ROOT).handler(this::overallHealthCheck);
+        router.get(HealthConstants.ROUTE_LIVE).handler(this::liveHealthCheck);
+        router.get(HealthConstants.ROUTE_READY).handler(this::readyHealthCheck);
+        router.get(HealthConstants.ROUTE_STARTED).handler(this::startedHealthCheck);
 
         if (appConfig.observability().health().legacyAliases()) {
-            router.get("/health/readiness").handler(this::readyHealthCheck);
-            router.get("/health/liveness").handler(this::liveHealthCheck);
+            router.get(HealthConstants.ROUTE_READY_ALIAS).handler(this::readyHealthCheck);
+            router.get(HealthConstants.ROUTE_LIVE_ALIAS).handler(this::liveHealthCheck);
         }
 
         if (appConfig.observability().health().exposeDetailed()) {
-            router.get("/health/detailed").handler(this::detailedHealthCheck);
+            router.get(HealthConstants.ROUTE_DETAILED).handler(this::detailedHealthCheck);
         }
     }
 
@@ -118,8 +124,10 @@ public class HealthRouter {
                             .put("osArch", System.getProperty("os.arch"));
 
                     JsonObject detailed = new JsonObject()
-                            .put("status", dependenciesUp ? "UP" : "DEGRADED")
-                            .put("timestamp", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
+                            .put(
+                                    JsonKeys.STATUS,
+                                    dependenciesUp ? HealthConstants.STATUS_UP : HealthConstants.STATUS_DEGRADED)
+                            .put(JsonKeys.TIMESTAMP, LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
                             .put("uptime", getUptimeMs())
                             .put("dependencies", dependencies)
                             .put("memory", memory)
@@ -135,55 +143,59 @@ public class HealthRouter {
                                                     appConfig.worker().poolSize()));
 
                     context.response()
-                            .putHeader("content-type", AppConstants.Http.CONTENT_TYPE_JSON)
-                            .setStatusCode(
-                                    dependenciesUp ? AppConstants.Status.OK : AppConstants.Status.SERVICE_UNAVAILABLE)
+                            .putHeader(HttpHeaders.CONTENT_TYPE, HttpConstants.CONTENT_TYPE_JSON)
+                            .setStatusCode(dependenciesUp ? HttpStatusCodes.OK : HttpStatusCodes.SERVICE_UNAVAILABLE)
                             .end(detailed.encode());
                 })
                 .onFailure(error -> {
                     log.error("Detailed health check failed", error);
                     JsonObject failure = new JsonObject()
-                            .put("status", "DEGRADED")
-                            .put("timestamp", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
-                            .put("error", error.getMessage());
+                            .put(JsonKeys.STATUS, HealthConstants.STATUS_DEGRADED)
+                            .put(JsonKeys.TIMESTAMP, LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
+                            .put(JsonKeys.ERROR, error.getMessage());
 
                     context.response()
-                            .putHeader("content-type", AppConstants.Http.CONTENT_TYPE_JSON)
-                            .setStatusCode(AppConstants.Status.SERVICE_UNAVAILABLE)
+                            .putHeader(HttpHeaders.CONTENT_TYPE, HttpConstants.CONTENT_TYPE_JSON)
+                            .setStatusCode(HttpStatusCodes.SERVICE_UNAVAILABLE)
                             .end(failure.encode());
                 });
     }
 
     private Future<JsonObject> checkDependencies() {
         // Check EventBus connectivity
+        String healthCheckAddress = appConfig.eventBus().healthCheckAddress();
         long startedAt = System.currentTimeMillis();
-        DeliveryOptions options = new DeliveryOptions().setSendTimeout(5000);
-        JsonObject healthCheckMessage =
-                new JsonObject().put("type", "health-check").put("timestamp", System.currentTimeMillis());
+        DeliveryOptions options = new DeliveryOptions()
+                .setSendTimeout(appConfig.observability().health().checkTimeoutMs());
+        JsonObject healthCheckMessage = new JsonObject()
+                .put(JsonKeys.TYPE, HealthConstants.VALUE_TYPE_HEALTH_CHECK)
+                .put(JsonKeys.TIMESTAMP, System.currentTimeMillis());
 
         return vertx.eventBus()
-                .<JsonObject>request(HEALTH_CHECK_EVENT, healthCheckMessage, options)
+                .<JsonObject>request(healthCheckAddress, healthCheckMessage, options)
                 .map(reply -> {
                     metricsFacade.recordEventBusRequest(
-                            HEALTH_CHECK_EVENT, "success", System.currentTimeMillis() - startedAt);
+                            healthCheckAddress, OutcomeConstants.SUCCESS, System.currentTimeMillis() - startedAt);
                     return new JsonObject()
                             .put(
-                                    "eventBus",
+                                    HealthConstants.KEY_EVENT_BUS,
                                     new JsonObject()
-                                            .put("status", "UP")
+                                            .put(JsonKeys.STATUS, HealthConstants.STATUS_UP)
                                             .put(
-                                                    "responseTime",
+                                                    HealthConstants.KEY_RESPONSE_TIME,
                                                     System.currentTimeMillis()
-                                                            - healthCheckMessage.getLong("timestamp")));
+                                                            - healthCheckMessage.getLong(JsonKeys.TIMESTAMP)));
                 })
                 .recover(error -> {
                     metricsFacade.recordEventBusRequest(
-                            HEALTH_CHECK_EVENT, "error", System.currentTimeMillis() - startedAt);
+                            healthCheckAddress, OutcomeConstants.ERROR, System.currentTimeMillis() - startedAt);
                     log.warn("EventBus health check failed: {}", error.getMessage());
                     return Future.succeededFuture(new JsonObject()
                             .put(
-                                    "eventBus",
-                                    new JsonObject().put("status", "DOWN").put("error", error.getMessage())));
+                                    HealthConstants.KEY_EVENT_BUS,
+                                    new JsonObject()
+                                            .put(JsonKeys.STATUS, HealthConstants.STATUS_DOWN)
+                                            .put(JsonKeys.ERROR, error.getMessage())));
                 });
     }
 
@@ -192,53 +204,62 @@ public class HealthRouter {
     }
 
     private boolean isDependencyUp(JsonObject dependencies) {
-        JsonObject eventBusHealth = dependencies != null ? dependencies.getJsonObject("eventBus") : null;
+        JsonObject eventBusHealth =
+                dependencies != null ? dependencies.getJsonObject(HealthConstants.KEY_EVENT_BUS) : null;
         if (eventBusHealth == null) {
             return false;
         }
-        return "UP".equalsIgnoreCase(eventBusHealth.getString("status"));
+        return HealthConstants.STATUS_UP.equalsIgnoreCase(eventBusHealth.getString(JsonKeys.STATUS));
     }
 
     private void respondWithProbe(RoutingContext context, Uni<HealthPayload> probe) {
         probe.subscribe()
                 .with(
                         payload -> {
-                            int statusCode = "UP".equalsIgnoreCase(payload.status())
-                                    ? AppConstants.Status.OK
-                                    : AppConstants.Status.SERVICE_UNAVAILABLE;
+                            int statusCode = HealthConstants.STATUS_UP.equalsIgnoreCase(payload.status())
+                                    ? HttpStatusCodes.OK
+                                    : HttpStatusCodes.SERVICE_UNAVAILABLE;
                             context.response()
-                                    .putHeader("content-type", AppConstants.Http.CONTENT_TYPE_JSON)
+                                    .putHeader(HttpHeaders.CONTENT_TYPE, HttpConstants.CONTENT_TYPE_JSON)
                                     .setStatusCode(statusCode)
                                     .end(toJson(payload).encode());
                         },
                         error -> {
                             log.error("Health probe execution failed", error);
                             JsonObject failure = new JsonObject()
-                                    .put("status", "DOWN")
-                                    .put("timestamp", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
-                                    .put("error", error.getMessage());
+                                    .put(JsonKeys.STATUS, HealthConstants.STATUS_DOWN)
+                                    .put(
+                                            JsonKeys.TIMESTAMP,
+                                            LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME))
+                                    .put(JsonKeys.ERROR, error.getMessage());
                             context.response()
-                                    .putHeader("content-type", AppConstants.Http.CONTENT_TYPE_JSON)
-                                    .setStatusCode(AppConstants.Status.SERVICE_UNAVAILABLE)
+                                    .putHeader(HttpHeaders.CONTENT_TYPE, HttpConstants.CONTENT_TYPE_JSON)
+                                    .setStatusCode(HttpStatusCodes.SERVICE_UNAVAILABLE)
                                     .end(failure.encode());
                         });
     }
 
     private JsonObject toJson(HealthPayload payload) {
         return new JsonObject()
-                .put("status", payload.status())
-                .put("generatedAt", payload.generatedAtMs())
-                .put("checks", payload.checks().stream().map(this::toJson).toList());
+                .put(JsonKeys.STATUS, payload.status())
+                .put(JsonKeys.GENERATED_AT, payload.generatedAtMs())
+                .put(
+                        JsonKeys.CHECKS,
+                        payload.checks().stream().map(this::toJson).toList());
     }
 
     private JsonObject toJson(CheckResult checkResult) {
         JsonObject json = new JsonObject()
-                .put("name", checkResult.name())
+                .put(JsonKeys.NAME, checkResult.name())
                 .put("type", checkResult.type().name())
-                .put("status", checkResult.status() == CheckStatus.UP ? "UP" : "DOWN")
-                .put("data", checkResult.data());
+                .put(
+                        JsonKeys.STATUS,
+                        checkResult.status() == CheckStatus.UP
+                                ? HealthConstants.STATUS_UP
+                                : HealthConstants.STATUS_DOWN)
+                .put(JsonKeys.DATA, checkResult.data());
         if (checkResult.message() != null && !checkResult.message().isBlank()) {
-            json.put("message", checkResult.message());
+            json.put(JsonKeys.MESSAGE, checkResult.message());
         }
         return json;
     }

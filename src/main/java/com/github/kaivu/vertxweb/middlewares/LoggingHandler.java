@@ -2,8 +2,10 @@ package com.github.kaivu.vertxweb.middlewares;
 
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
 import com.github.kaivu.vertxweb.observability.metrics.MetricsFacade;
+import com.github.kaivu.vertxweb.observability.tracing.TracingService;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
+import io.opentelemetry.api.trace.Span;
 import io.vertx.ext.web.RoutingContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,21 +23,29 @@ public class LoggingHandler {
     private static final Logger log = LoggerFactory.getLogger(LoggingHandler.class);
     private final ApplicationConfig applicationConfig;
     private final MetricsFacade metricsFacade;
+    private final TracingService tracingService;
 
     @Inject
-    public LoggingHandler(ApplicationConfig applicationConfig, MetricsFacade metricsFacade) {
+    public LoggingHandler(
+            ApplicationConfig applicationConfig, MetricsFacade metricsFacade, TracingService tracingService) {
         this.applicationConfig = applicationConfig;
         this.metricsFacade = metricsFacade;
+        this.tracingService = tracingService;
     }
 
     public void logRequest(RoutingContext ctx) {
-        // Only log requests if request logging is enabled
-        if (!applicationConfig.logging().enableRequestLogging()) {
-            ctx.next();
-            return;
+        long startTime = System.currentTimeMillis();
+        Span serverSpan = tracingService.startHttpServerSpan(ctx);
+        String traceId = tracingService.getTraceId(serverSpan);
+        String spanId = tracingService.getSpanId(serverSpan);
+        if (traceId != null) {
+            ctx.put(TracingService.ROUTING_TRACE_ID_KEY, traceId);
+            ctx.response().putHeader(TracingService.HEADER_TRACE_ID, traceId);
+        }
+        if (spanId != null) {
+            ctx.put(TracingService.ROUTING_SPAN_ID_KEY, spanId);
         }
 
-        long startTime = System.currentTimeMillis();
         ctx.addEndHandler(endHandler -> {
             long duration = System.currentTimeMillis() - startTime;
             int statusCode = ctx.response().getStatusCode();
@@ -43,10 +53,14 @@ public class LoggingHandler {
             String path = ctx.request().path();
             String routePath = ctx.currentRoute() != null ? ctx.currentRoute().getPath() : path;
 
-            log.info("Request: {}, {} - Status: {} - Duration: {} ms", method, path, statusCode, duration);
+            if (applicationConfig.logging().enableRequestLogging()) {
+                log.info("Request: {}, {} - Status: {} - Duration: {} ms", method, path, statusCode, duration);
+            }
             metricsFacade.recordHttpRequest(routePath, method, statusCode, duration);
+            tracingService.endHttpServerSpan(serverSpan, ctx, duration);
 
-            if (applicationConfig.logging().logRequestBodies()
+            if (applicationConfig.logging().enableRequestLogging()
+                    && applicationConfig.logging().logRequestBodies()
                     && ctx.body() != null
                     && ctx.body().available()) {
                 String body = ctx.body().asString();

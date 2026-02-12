@@ -1,6 +1,6 @@
 package com.github.kaivu.vertxweb.web;
 
-import com.github.kaivu.vertxweb.constants.AppConstants;
+import com.github.kaivu.vertxweb.constants.*;
 import com.github.kaivu.vertxweb.context.ContextAwareVertxWrapper;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import com.github.kaivu.vertxweb.web.validation.ValidationResult;
@@ -33,8 +33,8 @@ public class RouterHelper {
 
     private static final Logger log = LoggerFactory.getLogger(RouterHelper.class);
 
-    private static final String CONTENT_TYPE = AppConstants.Http.CONTENT_TYPE_JSON;
-    private static final String CHARSET = AppConstants.Http.CHARSET_UTF8;
+    private static final String CONTENT_TYPE = HttpConstants.CONTENT_TYPE_JSON;
+    private static final String CHARSET = HttpConstants.CHARSET_UTF8;
     private static final String FULL_CONTENT_TYPE = CONTENT_TYPE + "; " + CHARSET;
 
     /**
@@ -58,13 +58,13 @@ public class RouterHelper {
 
         // Extract user context if available
         String userId = ctx.user() != null ? ctx.user().principal().getString("sub") : null;
-        String tenantId = ctx.request().getHeader("X-Tenant-ID");
+        String tenantId = ctx.request().getHeader(HttpConstants.X_TENANT_ID);
 
         // Enrich correlation context
         wrapper.getCorrelationContext().withUserId(userId).withTenantId(tenantId);
 
         // Store wrapper in context for access in handlers
-        ctx.put("contextWrapper", wrapper);
+        ctx.put(ContextKeys.ROUTING_CONTEXT_WRAPPER, wrapper);
 
         wrapper.logEvent(
                 "request_received",
@@ -202,8 +202,7 @@ public class RouterHelper {
     public String validatePathParam(RoutingContext ctx, String paramName) {
         String value = ctx.pathParam(paramName);
         if (value == null || value.trim().isEmpty()) {
-            throw new ServiceException(
-                    AppConstants.Messages.MISSING_PATH_PARAM + paramName, AppConstants.Status.BAD_REQUEST);
+            throw new ServiceException(MessageConstants.MISSING_PATH_PARAM + paramName, HttpStatusCodes.BAD_REQUEST);
         }
         return value;
     }
@@ -217,7 +216,7 @@ public class RouterHelper {
      */
     public JsonObject validateRequestBody(RoutingContext ctx) {
         if (!ctx.body().available()) {
-            throw new ServiceException(AppConstants.Messages.MISSING_BODY, AppConstants.Status.BAD_REQUEST);
+            throw new ServiceException(MessageConstants.MISSING_BODY, HttpStatusCodes.BAD_REQUEST);
         }
         return ctx.body().asJsonObject();
     }
@@ -235,7 +234,7 @@ public class RouterHelper {
 
         if (!validationResult.isValid()) {
             throw new ServiceException(
-                    "Validation failed: " + validationResult.getAllErrors(), AppConstants.Status.BAD_REQUEST);
+                    "Validation failed: " + validationResult.getAllErrors(), HttpStatusCodes.BAD_REQUEST);
         }
 
         return body;
@@ -250,7 +249,7 @@ public class RouterHelper {
     public void handleValidationErrors(ValidationResult validationResult) {
         if (!validationResult.isValid()) {
             throw new ServiceException(
-                    "Validation failed: " + validationResult.getAllErrors(), AppConstants.Status.BAD_REQUEST);
+                    "Validation failed: " + validationResult.getAllErrors(), HttpStatusCodes.BAD_REQUEST);
         }
     }
 
@@ -311,7 +310,7 @@ public class RouterHelper {
                 .put("error", "Validation failed")
                 .put("details", validationResult.getAllErrors())
                 .put("timestamp", System.currentTimeMillis());
-        sendJsonResponse(ctx, AppConstants.Status.BAD_REQUEST, response);
+        sendJsonResponse(ctx, HttpStatusCodes.BAD_REQUEST, response);
     }
 
     /**

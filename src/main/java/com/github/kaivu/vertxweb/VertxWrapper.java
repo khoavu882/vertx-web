@@ -1,6 +1,6 @@
 package com.github.kaivu.vertxweb;
 
-import com.github.kaivu.vertxweb.constants.AppConstants;
+import com.github.kaivu.vertxweb.constants.*;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import io.smallrye.mutiny.Uni;
 import io.vertx.core.Context;
@@ -59,7 +59,7 @@ public class VertxWrapper {
     }
 
     public <T> Future<T> executeBlocking(Supplier<T> blockingCode) {
-        return executeBlocking(blockingCode, AppConstants.Status.INTERNAL_SERVER_ERROR, "Internal server error");
+        return executeBlocking(blockingCode, HttpStatusCodes.INTERNAL_SERVER_ERROR, "Internal server error");
     }
 
     public <T> Uni<T> executeBlockingUni(

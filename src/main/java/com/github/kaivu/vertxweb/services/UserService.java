@@ -1,7 +1,7 @@
 package com.github.kaivu.vertxweb.services;
 
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
-import com.github.kaivu.vertxweb.constants.AppConstants;
+import com.github.kaivu.vertxweb.constants.*;
 import com.github.kaivu.vertxweb.context.ContextAwareVertxWrapper;
 import com.github.kaivu.vertxweb.patterns.CircuitBreakerRegistry;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
@@ -42,7 +42,8 @@ public class UserService {
     }
 
     public Uni<JsonObject> getAllUsersWithContext(RoutingContext ctx) {
-        ContextAwareVertxWrapper wrapper = ctx != null ? (ContextAwareVertxWrapper) ctx.get("contextWrapper") : null;
+        ContextAwareVertxWrapper wrapper =
+                ctx != null ? (ContextAwareVertxWrapper) ctx.get(ContextKeys.ROUTING_CONTEXT_WRAPPER) : null;
 
         if (wrapper != null) {
             wrapper.logEvent("service_operation_start", "operation", "getAllUsers");
@@ -92,7 +93,7 @@ public class UserService {
                 .onFailure()
                 .transform(throwable -> {
                     log.error("Error fetching users", throwable);
-                    return new ServiceException("Failed to fetch users", AppConstants.Status.INTERNAL_SERVER_ERROR);
+                    return new ServiceException("Failed to fetch users", HttpStatusCodes.INTERNAL_SERVER_ERROR);
                 });
     }
 
@@ -103,10 +104,11 @@ public class UserService {
     public Uni<JsonObject> getUserByIdWithContext(String userId, RoutingContext ctx) {
         if (userId == null || userId.isBlank()) {
             return Uni.createFrom()
-                    .failure(new ServiceException("User ID must not be empty", AppConstants.Status.BAD_REQUEST));
+                    .failure(new ServiceException("User ID must not be empty", HttpStatusCodes.BAD_REQUEST));
         }
 
-        ContextAwareVertxWrapper wrapper = ctx != null ? (ContextAwareVertxWrapper) ctx.get("contextWrapper") : null;
+        ContextAwareVertxWrapper wrapper =
+                ctx != null ? (ContextAwareVertxWrapper) ctx.get(ContextKeys.ROUTING_CONTEXT_WRAPPER) : null;
 
         if (wrapper != null) {
             wrapper.logEvent("service_operation_start", "operation", "getUserById", "userId", userId);
@@ -154,7 +156,7 @@ public class UserService {
                                 .put("email", "bob@example.com")
                                 .put("active", false)
                                 .put("createdAt", "2024-02-01T09:15:00Z");
-                        default -> throw new ServiceException("User not found", AppConstants.Status.NOT_FOUND);
+                        default -> throw new ServiceException("User not found", HttpStatusCodes.NOT_FOUND);
                     };
                 })
                 .onFailure()
@@ -163,7 +165,7 @@ public class UserService {
                         return throwable;
                     }
                     log.error("Error fetching user: {}", userId, throwable);
-                    return new ServiceException("Failed to fetch user", AppConstants.Status.INTERNAL_SERVER_ERROR);
+                    return new ServiceException("Failed to fetch user", HttpStatusCodes.INTERNAL_SERVER_ERROR);
                 });
     }
 
@@ -174,22 +176,22 @@ public class UserService {
     public Uni<JsonObject> createUserWithContext(JsonObject user, RoutingContext ctx) {
         if (user == null || user.isEmpty()) {
             return Uni.createFrom()
-                    .failure(new ServiceException("User data must not be empty", AppConstants.Status.BAD_REQUEST));
+                    .failure(new ServiceException("User data must not be empty", HttpStatusCodes.BAD_REQUEST));
         }
 
         String name = user.getString("name");
         String email = user.getString("email");
 
         if (name == null || name.isBlank()) {
-            return Uni.createFrom()
-                    .failure(new ServiceException("User name is required", AppConstants.Status.BAD_REQUEST));
+            return Uni.createFrom().failure(new ServiceException("User name is required", HttpStatusCodes.BAD_REQUEST));
         }
         if (email == null || email.isBlank()) {
             return Uni.createFrom()
-                    .failure(new ServiceException("User email is required", AppConstants.Status.BAD_REQUEST));
+                    .failure(new ServiceException("User email is required", HttpStatusCodes.BAD_REQUEST));
         }
 
-        ContextAwareVertxWrapper wrapper = ctx != null ? (ContextAwareVertxWrapper) ctx.get("contextWrapper") : null;
+        ContextAwareVertxWrapper wrapper =
+                ctx != null ? (ContextAwareVertxWrapper) ctx.get(ContextKeys.ROUTING_CONTEXT_WRAPPER) : null;
 
         if (wrapper != null) {
             wrapper.logEvent("service_operation_start", "operation", "createUser", "userName", name);
@@ -232,7 +234,7 @@ public class UserService {
                 .onFailure()
                 .transform(throwable -> {
                     log.error("Error creating user", throwable);
-                    return new ServiceException("Failed to create user", AppConstants.Status.INTERNAL_SERVER_ERROR);
+                    return new ServiceException("Failed to create user", HttpStatusCodes.INTERNAL_SERVER_ERROR);
                 });
     }
 
@@ -243,14 +245,15 @@ public class UserService {
     public Uni<JsonObject> updateUserWithContext(String userId, JsonObject user, RoutingContext ctx) {
         if (userId == null || userId.isBlank()) {
             return Uni.createFrom()
-                    .failure(new ServiceException("User ID must not be empty", AppConstants.Status.BAD_REQUEST));
+                    .failure(new ServiceException("User ID must not be empty", HttpStatusCodes.BAD_REQUEST));
         }
         if (user == null || user.isEmpty()) {
             return Uni.createFrom()
-                    .failure(new ServiceException("User data must not be empty", AppConstants.Status.BAD_REQUEST));
+                    .failure(new ServiceException("User data must not be empty", HttpStatusCodes.BAD_REQUEST));
         }
 
-        ContextAwareVertxWrapper wrapper = ctx != null ? (ContextAwareVertxWrapper) ctx.get("contextWrapper") : null;
+        ContextAwareVertxWrapper wrapper =
+                ctx != null ? (ContextAwareVertxWrapper) ctx.get(ContextKeys.ROUTING_CONTEXT_WRAPPER) : null;
 
         if (wrapper != null) {
             wrapper.logEvent("service_operation_start", "operation", "updateUser", "userId", userId);
@@ -288,7 +291,7 @@ public class UserService {
                         return throwable;
                     }
                     log.error("Error updating user: {}", userId, throwable);
-                    return new ServiceException("Failed to update user", AppConstants.Status.INTERNAL_SERVER_ERROR);
+                    return new ServiceException("Failed to update user", HttpStatusCodes.INTERNAL_SERVER_ERROR);
                 }));
     }
 
@@ -299,10 +302,11 @@ public class UserService {
     public Uni<JsonObject> deleteUserWithContext(String userId, RoutingContext ctx) {
         if (userId == null || userId.isBlank()) {
             return Uni.createFrom()
-                    .failure(new ServiceException("User ID must not be empty", AppConstants.Status.BAD_REQUEST));
+                    .failure(new ServiceException("User ID must not be empty", HttpStatusCodes.BAD_REQUEST));
         }
 
-        ContextAwareVertxWrapper wrapper = ctx != null ? (ContextAwareVertxWrapper) ctx.get("contextWrapper") : null;
+        ContextAwareVertxWrapper wrapper =
+                ctx != null ? (ContextAwareVertxWrapper) ctx.get(ContextKeys.ROUTING_CONTEXT_WRAPPER) : null;
 
         if (wrapper != null) {
             wrapper.logEvent("service_operation_start", "operation", "deleteUser", "userId", userId);
@@ -336,7 +340,7 @@ public class UserService {
                         return throwable;
                     }
                     log.error("Error deleting user: {}", userId, throwable);
-                    return new ServiceException("Failed to delete user", AppConstants.Status.INTERNAL_SERVER_ERROR);
+                    return new ServiceException("Failed to delete user", HttpStatusCodes.INTERNAL_SERVER_ERROR);
                 }));
     }
 }

@@ -132,12 +132,129 @@ class ObservabilityRoutesIntegrationTest {
         }
     }
 
+    @Test
+    void openApiEndpointsShouldBeAvailableWithoutAuthToken() throws Exception {
+        try (TestServer server = TestServer.start(Map.of(
+                "app.security.enable-auth",
+                "true",
+                "app.observability.metrics.enable",
+                "true",
+                "app.observability.metrics.exposure",
+                "protected"))) {
+            HttpResponse<String> yamlResponse = get(server, "/openapi.yaml");
+            HttpResponse<String> jsonResponse = get(server, "/openapi.json");
+
+            assertEquals(200, yamlResponse.statusCode());
+            assertTrue(yamlResponse.body().contains("openapi:"));
+            assertEquals(200, jsonResponse.statusCode());
+            assertTrue(jsonResponse.body().contains("\"openapi\""));
+        }
+    }
+
+    @Test
+    void docsUiShouldBeAvailableWithoutAuthToken() throws Exception {
+        try (TestServer server = TestServer.start(Map.of(
+                "app.security.enable-auth",
+                "true",
+                "app.observability.metrics.enable",
+                "true",
+                "app.observability.metrics.exposure",
+                "protected"))) {
+            HttpResponse<String> response = get(server, "/docs");
+
+            assertEquals(200, response.statusCode());
+            assertTrue(response.headers().firstValue("Content-Type").orElse("").startsWith("text/html"));
+            assertTrue(response.body().contains("SwaggerUIBundle"));
+            assertTrue(response.body().contains("/openapi.yaml"));
+        }
+    }
+
+    @Test
+    void tracingHeaderShouldBePresentWhenTracingEnabled() throws Exception {
+        try (TestServer server = TestServer.start(
+                Map.of("app.security.enable-auth", "true", "app.observability.tracing.enable", "true"))) {
+            HttpResponse<String> response = get(server, "/docs");
+
+            assertEquals(200, response.statusCode());
+            String traceId = response.headers().firstValue("X-Trace-ID").orElse("");
+            assertTrue(traceId.matches("^[0-9a-f]{32}$"));
+        }
+    }
+
+    @Test
+    void tracingHeaderShouldBeAbsentWhenTracingDisabled() throws Exception {
+        try (TestServer server = TestServer.start(
+                Map.of("app.security.enable-auth", "true", "app.observability.tracing.enable", "false"))) {
+            HttpResponse<String> response = get(server, "/docs");
+
+            assertEquals(200, response.statusCode());
+            assertTrue(response.headers().firstValue("X-Trace-ID").isEmpty());
+        }
+    }
+
+    @Test
+    void userEndpointShouldReturnGatewayTimeoutWhenCircuitBreakerTimesOut() throws Exception {
+        try (TestServer server = TestServer.start(Map.of(
+                "app.security.enable-auth",
+                "true",
+                "app.service.user-fetch-base-delay-ms",
+                "200",
+                "app.service.user-fetch-max-variance-ms",
+                "1",
+                "app.service.circuit-breaker-timeout-ms",
+                "50",
+                "app.service.circuit-breaker-failure-threshold",
+                "5"))) {
+            HttpResponse<String> response = get(server, "/api/users/1", "Bearer timeout-test");
+
+            assertEquals(504, response.statusCode());
+            assertTrue(response.body().contains("timed out"));
+        }
+    }
+
+    @Test
+    void userEndpointShouldReturnServiceUnavailableWhenCircuitBreakerIsOpen() throws Exception {
+        try (TestServer server = TestServer.start(Map.of(
+                "app.security.enable-auth",
+                "true",
+                "app.service.user-fetch-base-delay-ms",
+                "200",
+                "app.service.user-fetch-max-variance-ms",
+                "1",
+                "app.service.circuit-breaker-timeout-ms",
+                "50",
+                "app.service.circuit-breaker-failure-threshold",
+                "1",
+                "app.service.circuit-breaker-success-threshold",
+                "1",
+                "app.service.circuit-breaker-reset-timeout-ms",
+                "60000"))) {
+            HttpResponse<String> firstResponse = get(server, "/api/users/1", "Bearer timeout-test");
+            HttpResponse<String> secondResponse = get(server, "/api/users/1", "Bearer timeout-test");
+
+            assertEquals(504, firstResponse.statusCode());
+            assertEquals(503, secondResponse.statusCode());
+            assertTrue(secondResponse.body().contains("temporarily unavailable"));
+        }
+    }
+
     private HttpResponse<String> get(TestServer server, String path) throws IOException, InterruptedException {
         HttpRequest request = HttpRequest.newBuilder(URI.create(server.baseUrl() + path))
                 .timeout(HTTP_TIMEOUT)
                 .GET()
                 .build();
         return httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+    }
+
+    private HttpResponse<String> get(TestServer server, String path, String authorization)
+            throws IOException, InterruptedException {
+        HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(URI.create(server.baseUrl() + path))
+                .timeout(HTTP_TIMEOUT)
+                .GET();
+        if (authorization != null) {
+            requestBuilder.header("Authorization", authorization);
+        }
+        return httpClient.send(requestBuilder.build(), HttpResponse.BodyHandlers.ofString());
     }
 
     private static final class TestServer implements AutoCloseable {

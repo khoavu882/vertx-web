@@ -1,7 +1,7 @@
 package com.github.kaivu.vertxweb.middlewares;
 
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
-import com.github.kaivu.vertxweb.constants.AppConstants;
+import com.github.kaivu.vertxweb.constants.*;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import io.vertx.core.http.HttpHeaders;
@@ -21,7 +21,6 @@ import org.slf4j.LoggerFactory;
 public class AuthHandler {
 
     private static final Logger log = LoggerFactory.getLogger(AuthHandler.class);
-    private static final String AUTH_MODE_HEADER = "X-Auth-Mode";
     private static final String DEMO_AUTH_MODE = "demo-bearer-presence-check";
     private final ApplicationConfig applicationConfig;
 
@@ -49,7 +48,7 @@ public class AuthHandler {
 
         String path = ctx.request().path();
         log.info("Authenticating request: {}", path);
-        ctx.response().putHeader(AUTH_MODE_HEADER, DEMO_AUTH_MODE);
+        ctx.response().putHeader(HttpConstants.X_AUTH_MODE, DEMO_AUTH_MODE);
 
         // Allow configured public endpoints and health endpoints to bypass authentication.
         if (isPublicEndpoint(path)) {
@@ -58,13 +57,13 @@ public class AuthHandler {
             return;
         }
 
-        String authHeader = ctx.request().getHeader(HttpHeaders.AUTHORIZATION.toString());
+        String authHeader = ctx.request().getHeader(HttpConstants.AUTHORIZATION);
 
-        if (authHeader == null || !authHeader.startsWith("Bearer ")) {
+        if (authHeader == null || !authHeader.startsWith(AuthConstants.AUTH_SCHEME)) {
             log.warn("Unauthorized request to protected endpoint: {}", path);
             ctx.response()
-                    .putHeader(HttpHeaders.CONTENT_TYPE, AppConstants.Http.CONTENT_TYPE_JSON)
-                    .setStatusCode(AppConstants.Status.UNAUTHORIZED)
+                    .putHeader(HttpHeaders.CONTENT_TYPE, HttpConstants.CONTENT_TYPE_JSON)
+                    .setStatusCode(HttpStatusCodes.UNAUTHORIZED)
                     .end(new JsonObject()
                             .put("error", "Unauthorized")
                             .put("message", "Missing or invalid authorization header")
@@ -74,12 +73,12 @@ public class AuthHandler {
 
         // DEMO ONLY: this intentionally checks only Bearer token presence.
         // Replace with real JWT validation before any non-demo deployment.
-        String token = authHeader.substring(7); // Remove "Bearer " prefix
+        String token = authHeader.substring(AuthConstants.AUTH_SCHEME.length()); // Remove auth scheme prefix
         if (token.isEmpty()) {
             log.warn("Empty token for protected endpoint: {}", path);
             ctx.response()
-                    .putHeader(HttpHeaders.CONTENT_TYPE, AppConstants.Http.CONTENT_TYPE_JSON)
-                    .setStatusCode(AppConstants.Status.UNAUTHORIZED)
+                    .putHeader(HttpHeaders.CONTENT_TYPE, HttpConstants.CONTENT_TYPE_JSON)
+                    .setStatusCode(HttpStatusCodes.UNAUTHORIZED)
                     .end(new JsonObject()
                             .put("error", "Unauthorized")
                             .put("message", "Empty authorization token")
@@ -97,7 +96,10 @@ public class AuthHandler {
         }
 
         // Health probes should remain reachable for local/dev tooling.
-        if (path.startsWith("/health")) {
+        if (path.startsWith(PathConstants.HEALTH_ROOT)) {
+            return true;
+        }
+        if (path.startsWith(PathConstants.OPENAPI_ROOT) || path.startsWith(PathConstants.DOCS_ROOT)) {
             return true;
         }
 
@@ -125,7 +127,7 @@ public class AuthHandler {
 
         String endpointPath = metricsConfig.endpointPath();
         if (endpointPath == null || endpointPath.isBlank()) {
-            endpointPath = "/metrics";
+            endpointPath = PathConstants.METRICS_ROOT;
         } else if (!endpointPath.startsWith("/")) {
             endpointPath = "/" + endpointPath;
         }

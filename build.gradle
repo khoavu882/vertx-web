@@ -3,6 +3,7 @@ plugins {
     id 'application'
     id 'io.freefair.lombok' version '8.6'
     id 'com.diffplug.spotless' version '6.25.0'
+    id 'io.smallrye.openapi' version '4.2.4'
 }
 
 group = 'com.github.kaivu'
@@ -17,6 +18,7 @@ def junitJupiterVersion = project.property('junitJupiterVersion')
 def logbackVersion = project.property('logbackVersion')
 def slf4jVersion = project.property('slf4jVersion')
 def micrometerVersion = project.property('micrometerVersion')
+def opentelemetryVersion = project.property('opentelemetryVersion')
 
 repositories {
     mavenCentral()
@@ -33,6 +35,10 @@ dependencies {
     implementation "ch.qos.logback:logback-classic:${logbackVersion}"
     implementation "io.micrometer:micrometer-core:${micrometerVersion}"
     implementation "io.micrometer:micrometer-registry-prometheus:${micrometerVersion}"
+    implementation "io.opentelemetry:opentelemetry-api:${opentelemetryVersion}"
+    implementation "io.opentelemetry:opentelemetry-sdk:${opentelemetryVersion}"
+    implementation "io.opentelemetry:opentelemetry-exporter-logging:${opentelemetryVersion}"
+    implementation "io.opentelemetry:opentelemetry-exporter-otlp:${opentelemetryVersion}"
     compileOnly "org.projectlombok:lombok:${lombokVersion}"
     annotationProcessor "org.projectlombok:lombok:${lombokVersion}"
     testImplementation "io.vertx:vertx-junit5:${vertxVersion}"
@@ -47,6 +53,20 @@ test {
 
 application {
     mainClass = 'com.github.kaivu.vertxweb.StartupApp'
+}
+
+smallryeOpenApi {
+    infoTitle.set("Vert.x Web API")
+    infoVersion.set(project.version.toString())
+    infoDescription.set("Reactive Vert.x API documentation")
+}
+
+tasks.named('processResources') {
+    dependsOn(tasks.named('generateOpenApiSpec'))
+    from(layout.buildDirectory.dir('generated/openapi')) {
+        include 'openapi.yaml', 'openapi.json'
+        into 'openapi'
+    }
 }
 
 spotless {

@@ -1,5 +1,6 @@
 package com.github.kaivu.vertxweb.config;
 
+import com.github.kaivu.vertxweb.constants.*;
 import io.smallrye.config.ConfigMapping;
 import io.smallrye.config.WithDefault;
 
@@ -45,6 +46,11 @@ public interface ApplicationConfig {
      * Analytics configuration section.
      */
     AnalyticsConfig analytics();
+
+    /**
+     * EventBus address configuration section.
+     */
+    EventBusConfig eventBus();
 
     /**
      * Validation configuration section.
@@ -131,6 +137,18 @@ public interface ApplicationConfig {
         @WithDefault("500")
         int defaultTimeoutMs();
 
+        @WithDefault("5")
+        int circuitBreakerFailureThreshold();
+
+        @WithDefault("3")
+        int circuitBreakerSuccessThreshold();
+
+        @WithDefault("10000")
+        int circuitBreakerTimeoutMs();
+
+        @WithDefault("60000")
+        int circuitBreakerResetTimeoutMs();
+
         @WithDefault("100")
         int baseDelayMs();
 
@@ -175,7 +193,7 @@ public interface ApplicationConfig {
     }
 
     interface AnalyticsConfig {
-        @WithDefault("app.worker.analytics-report")
+        @WithDefault(EventBusConstants.ANALYTICS_REPORT)
         String eventAddress();
 
         @WithDefault("2000")
@@ -204,6 +222,17 @@ public interface ApplicationConfig {
 
         @WithDefault("3600000")
         long requestExpirationMs();
+    }
+
+    interface EventBusConfig {
+        @WithDefault(EventBusConstants.HEALTH_CHECK)
+        String healthCheckAddress();
+
+        @WithDefault(EventBusConstants.BATCH_OPERATION)
+        String batchOperationAddress();
+
+        @WithDefault(EventBusConstants.LEGACY_OPERATION)
+        String legacyOperationAddress();
     }
 
     interface ValidationConfig {
@@ -251,6 +280,8 @@ public interface ApplicationConfig {
 
         MetricsConfig metrics();
 
+        TracingConfig tracing();
+
         interface HealthConfig {
             @WithDefault("true")
             boolean enable();
@@ -272,7 +303,7 @@ public interface ApplicationConfig {
             @WithDefault("micrometer")
             String backend();
 
-            @WithDefault("/metrics")
+            @WithDefault(PathConstants.METRICS_ROOT)
             String endpointPath();
 
             @WithDefault("protected")
@@ -283,6 +314,23 @@ public interface ApplicationConfig {
 
             @WithDefault("true")
             boolean includeSystem();
+        }
+
+        interface TracingConfig {
+            @WithDefault("true")
+            boolean enable();
+
+            @WithDefault("vertx-web")
+            String serviceName();
+
+            @WithDefault("logging")
+            String exporter();
+
+            @WithDefault("http://localhost:4317")
+            String otlpEndpoint();
+
+            @WithDefault("1.0")
+            double samplingRatio();
         }
     }
 }

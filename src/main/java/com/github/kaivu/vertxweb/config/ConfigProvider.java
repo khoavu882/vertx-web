@@ -99,15 +99,25 @@ public class ConfigProvider {
                 config.logging().includeStackTraceInErrorResponse(),
                 config.logging().logLevel());
         log.info(
-                "  Service - Default Timeout: {}ms, Base Delay: {}ms",
+                "  Service - Default Timeout: {}ms, Base Delay: {}ms, Circuit Breaker [failures={}, successes={}, timeout={}ms, reset={}ms]",
                 config.service().defaultTimeoutMs(),
-                config.service().baseDelayMs());
+                config.service().baseDelayMs(),
+                config.service().circuitBreakerFailureThreshold(),
+                config.service().circuitBreakerSuccessThreshold(),
+                config.service().circuitBreakerTimeoutMs(),
+                config.service().circuitBreakerResetTimeoutMs());
         log.info("  Validation - Max Name Length: {}", config.validation().maxNameLength());
         log.info(
                 "  Analytics - Execution Timeout: {}ms, DB Delay: {}ms, File Delay: {}ms",
                 config.analytics().executionTimeoutMs(),
                 config.analytics().databaseQueryDelayMs(),
                 config.analytics().fileProcessingDelayMs());
+        log.info(
+                "  EventBus - Health: {}, Batch: {}, Legacy: {}, Analytics: {}",
+                config.eventBus().healthCheckAddress(),
+                config.eventBus().batchOperationAddress(),
+                config.eventBus().legacyOperationAddress(),
+                config.analytics().eventAddress());
         log.info(
                 "  Observability Health - Enabled: {}, Detailed: {}, Check Timeout: {}ms, Legacy Aliases: {}",
                 config.observability().health().enable(),
@@ -122,5 +132,12 @@ public class ConfigProvider {
                 config.observability().metrics().exposure(),
                 config.observability().metrics().includeJvm(),
                 config.observability().metrics().includeSystem());
+        log.info(
+                "  Observability Tracing - Enabled: {}, Service: {}, Exporter: {}, OTLP Endpoint: {}, Sampling Ratio: {}",
+                config.observability().tracing().enable(),
+                config.observability().tracing().serviceName(),
+                config.observability().tracing().exporter(),
+                config.observability().tracing().otlpEndpoint(),
+                config.observability().tracing().samplingRatio());
     }
 }
