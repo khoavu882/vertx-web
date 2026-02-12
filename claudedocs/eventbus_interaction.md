@@ -20,7 +20,68 @@ This keeps HTTP event loop paths fast while pushing heavier logic to worker-side
 - `app.health.check`
 - `app.worker.operation` (legacy)
 
-## 3. HTTP → Worker Flow (Analytics)
+## 3. Workflow Diagram
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant C as Client
+    participant PR as ProductRouter (HTTP)
+    participant HR as HealthRouter (HTTP)
+    participant EB as Vert.x EventBus
+    participant AC as AnalyticsConsumer
+    participant BC as BatchOperationConsumer
+    participant HC as HealthCheckConsumer
+
+    C->>PR: GET /api/products/analytics/report
+    PR->>PR: Build payload + enrich context
+    PR->>EB: request app.worker.analytics-report
+    EB->>AC: deliver message
+    alt Analytics success
+        AC-->>EB: message.reply(...)
+        EB-->>PR: reply payload
+        PR-->>C: HTTP 200
+    else Analytics business/service failure
+        AC-->>EB: message.fail(statusCode, message)
+        EB-->>PR: ReplyException(failureCode)
+        PR-->>C: HTTP mapped from failureCode
+    else Analytics unknown failure
+        PR-->>C: HTTP 500 fallback
+    end
+
+    C->>PR: POST /api/products/batch/:operation
+    PR->>EB: request app.worker.batch-operation
+    EB->>BC: deliver message
+    alt Batch success
+        BC-->>EB: message.reply(...)
+        EB-->>PR: reply payload
+        PR-->>C: HTTP 200
+    else Batch failure
+        BC-->>EB: message.fail(statusCode, message)
+        EB-->>PR: ReplyException(failureCode)
+        PR-->>C: HTTP mapped from failureCode
+    end
+
+    C->>HR: GET /health/ready
+    HR->>EB: request app.health.check
+    EB->>HC: deliver health probe
+    alt Health consumer replies
+        HC-->>EB: message.reply(...)
+        EB-->>HR: health payload
+        HR-->>C: Health response (UP/DOWN)
+    else Timeout/NO_HANDLERS/failure
+        EB-->>HR: failure
+        HR-->>C: DOWN (503)
+    end
+```
+
+Diagram notes:
+
+- The same request/reply + failure-code mapping pattern is used by analytics and batch flows.
+- Correlation context enrichment occurs before EventBus requests in publisher routes.
+- Health readiness depends on `app.health.check` request/reply availability and timeout behavior.
+
+## 4. HTTP → Worker Flow (Analytics)
 
 ### Publisher
 
@@ -40,7 +101,7 @@ This keeps HTTP event loop paths fast while pushing heavier logic to worker-side
   3. Execute operation under analytics circuit breaker
   4. `message.reply(...)` on success or `message.fail(...)` on failure
 
-## 4. HTTP → Worker Flow (Batch)
+## 5. HTTP → Worker Flow (Batch)
 
 ### Publisher
 
@@ -54,13 +115,13 @@ This keeps HTTP event loop paths fast while pushing heavier logic to worker-side
 - Valid operations: `insert`, `update`, `delete`, `migrate`
 - Delete operation requires `confirmDelete=true`
 
-## 5. Health Check EventBus Flow
+## 6. Health Check EventBus Flow
 
 - HTTP health router sends a probe to `app.health.check`
 - `HealthCheckConsumer` replies with worker health/config readiness
-- Readiness endpoint maps EventBus status to `READY` / `NOT_READY`
+- Readiness endpoint maps probe result to `UP` / `DOWN`
 
-## 6. Failure Mapping
+## 7. Failure Mapping
 
 For request/reply flows:
 
@@ -68,7 +129,7 @@ For request/reply flows:
 - HTTP-side caller maps `ReplyException.failureCode()` to HTTP status
 - Unknown failures fall back to `500`
 
-## 7. Context Propagation Contract
+## 8. Context Propagation Contract
 
 Current message enrichment keys:
 
@@ -78,7 +139,7 @@ Current message enrichment keys:
 
 If these are removed or renamed, worker-side trace continuity breaks.
 
-## 8. Troubleshooting
+## 9. Troubleshooting
 
 | Symptom | Probable Cause | Check |
 |---|---|---|
