@@ -1,51 +1,99 @@
-# Vertx-web
+# Vertx Web
 
-![Vert.x 4.5.10](https://img.shields.io/badge/vert.x-4.5.10-purple.svg)
+![Vert.x 4.5.14](https://img.shields.io/badge/vert.x-4.5.14-purple.svg)
 
-This application was generated using [start.vertx.io](http://start.vertx.io)
+Reactive Vert.x + Guice demo service with a dual-verticle architecture:
+- `AppVerticle` handles HTTP traffic
+- `WorkerVerticle` handles EventBus consumers
 
-## Build, Lint, and Test
+The real entrypoint is `StartupApp`.
 
-- **Build:** `./gradlew build`
-- **Lint/Format:** `./gradlew spotlessCheck` (check), `./gradlew spotlessApply` (auto-format)
-- **Test (all):** `./gradlew test`
-- **Test (single):** `./gradlew test --tests ClassName.methodName`
-- **Run app:** `./gradlew run`
+## Build, Run, Validate
 
-## Project Structure & Architecture
+- Build: `./gradlew build`
+- Format check: `./gradlew spotlessCheck`
+- Format apply: `./gradlew spotlessApply`
+- Run: `./gradlew run`
+- Validate: `./gradlew clean test check`
 
-- **Entrypoint:** `AppVerticle.java` (main verticle), `WorkerVerticle.java` (background tasks)
-- **Dependency Injection:** Guice (`AppModule.java`)
-- **HTTP Routing:** `RouterConfig.java` (middleware, error handling, subrouters)
-- **REST Routers:** `web.rests.*Router.java` (User, Product, Common)
-- **Services:** `services/` (business logic, async via Mutiny)
-- **Middleware:** `middlewares/` (auth, logging)
-- **Error Handling:** `web.errors.ErrorHandler.java`
-- **Tests:** `src/test/java/com/github/kaivu/vertx_web/`
-- **No database configured by default** (stubbed data in services)
+Note: test dependencies are configured, but there are currently no test source files (`test NO-SOURCE`).
 
-## Build & Project Setup
+## Current Architecture
 
-- **Build Tool:** Gradle 9.0
-- **Configuration:** `gradle.properties` for project properties
-- **Repositories:** Ensure `repositories` block is present in `build.gradle` for dependencies
-- **Main Class:** Use `application { mainClass = ... }` in `build.gradle` (not `mainClassName`)
+- Bootstrap: `src/main/java/com/github/kaivu/vertxweb/StartupApp.java`
+- DI module: `src/main/java/com/github/kaivu/vertxweb/config/AppModule.java`
+- Main router: `src/main/java/com/github/kaivu/vertxweb/web/routes/RouterConfig.java`
+- Domain routers:
+  - `src/main/java/com/github/kaivu/vertxweb/web/rests/CommonRouter.java`
+  - `src/main/java/com/github/kaivu/vertxweb/web/rests/UserRouter.java`
+  - `src/main/java/com/github/kaivu/vertxweb/web/rests/ProductRouter.java`
+  - `src/main/java/com/github/kaivu/vertxweb/web/rests/HealthRouter.java`
+- Services: `src/main/java/com/github/kaivu/vertxweb/services/`
+- Consumers: `src/main/java/com/github/kaivu/vertxweb/consumers/`
+- Resilience pattern: `src/main/java/com/github/kaivu/vertxweb/patterns/`
 
-## Code Style & Conventions
+## HTTP Pipeline (Current)
 
-- **Formatting:** Enforced by Spotless (Palantir Java Format)
-- **Imports:** Use explicit imports, avoid wildcards
-- **Types:** Prefer explicit types, use Lombok for boilerplate
-- **Naming:** Classes: PascalCase, methods/fields: camelCase, constants: UPPER_SNAKE_CASE
-- **Error Handling:** Use Vert.x async error handling (`ctx.fail`, `failureHandler`)
-- **Testing:** JUnit 5, Vert.x JUnit5 extension
-- **Dependency Injection:** Use Guice `@Inject`, `@Singleton`, and `@Provides`
-- **REST:** Use Vert.x Router, subrouters for modular endpoints
-- **File uploads:** Enabled via BodyHandler, uploads to `uploads/`
+Global handler order in `RouterConfig`:
+1. `TimeoutHandler`
+2. Global `CorsHandler`
+3. `LoggingHandler`
+4. `AuthHandler`
+5. Route handlers
+6. Global `ErrorHandler` (failure handler)
 
-## Help
+Important behavior:
+- CORS is now global for all routes.
+- `OPTIONS` requests bypass auth for preflight support.
+- Auth is demo-only by design (Bearer-token presence check only, no JWT verification).
 
-- [Vert.x Documentation](https://vertx.io/docs/)
-- [Vert.x Stack Overflow](https://stackoverflow.com/questions/tagged/vert.x?sort=newest&pageSize=15)
-- [Vert.x User Group](https://groups.google.com/forum/?fromgroups#!forum/vertx)
-- [Vert.x Discord](https://discord.gg/6ry7aqPWXy)
+## API Routes
+
+- Public:
+  - `GET /api/common`
+  - `GET /health`
+  - `GET /health/readiness`
+  - `GET /health/liveness`
+  - `GET /health/detailed`
+- Protected:
+  - `GET /api/users`
+  - `GET /api/users/:id`
+  - `POST /api/users`
+  - `PUT /api/users/:id`
+  - `DELETE /api/users/:id`
+  - `GET /api/products`
+  - `GET /api/products/:productId`
+  - `POST /api/products`
+  - `PUT /api/products/:productId/stock`
+  - `GET /api/products/analytics/report`
+  - `POST /api/products/batch/:operation`
+
+## Configuration
+
+Config is loaded via SmallRye `@ConfigMapping(prefix = "app")` from:
+- `src/main/resources/application.yml`
+- env var overrides (for example: `APP_SERVER_PORT`)
+
+Current CORS config shape:
+
+```yaml
+app:
+  server:
+    cors:
+      enable: true
+      allowed-origins: "*"
+      allow-credentials: false
+```
+
+YAML-source presence is explicitly validated at startup by `ConfigProvider`.
+
+## EventBus Addresses
+
+- `app.worker.analytics-report`
+- `app.worker.batch-operation`
+- `app.health.check`
+- `app.worker.operation` (legacy)
+
+## References
+
+- [Vert.x Docs](https://vertx.io/docs/)

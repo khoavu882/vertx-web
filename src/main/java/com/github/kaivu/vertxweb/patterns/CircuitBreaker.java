@@ -1,5 +1,6 @@
 package com.github.kaivu.vertxweb.patterns;
 
+import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import io.smallrye.mutiny.Uni;
 import io.vertx.core.Vertx;
 import java.time.Duration;
@@ -27,19 +28,21 @@ public class CircuitBreaker {
     private final Duration timeout;
     private final Duration resetTimeout;
     private final Vertx vertx;
+    private final CircuitBreakerObserver observer;
 
     private final AtomicReference<State> state;
     private final AtomicInteger failureCount;
     private final AtomicInteger successCount;
     private final AtomicLong lastFailureTime;
 
-    public CircuitBreaker(String name, Vertx vertx, CircuitBreakerConfig config) {
+    public CircuitBreaker(String name, Vertx vertx, CircuitBreakerConfig config, CircuitBreakerObserver observer) {
         this.name = name;
         this.vertx = vertx;
         this.failureThreshold = config.failureThreshold();
         this.successThreshold = config.successThreshold();
         this.timeout = Duration.ofMillis(config.timeoutMs());
         this.resetTimeout = Duration.ofMillis(config.resetTimeoutMs());
+        this.observer = observer != null ? observer : new NoopCircuitBreakerObserver();
 
         this.state = new AtomicReference<>(State.CLOSED);
         this.failureCount = new AtomicInteger(0);
@@ -64,7 +67,7 @@ public class CircuitBreaker {
             case OPEN:
                 if (shouldAttemptReset()) {
                     log.info("Circuit breaker '{}' transitioning to HALF_OPEN", name);
-                    state.set(State.HALF_OPEN);
+                    transitionTo(State.HALF_OPEN);
                     return true;
                 }
                 return false;
@@ -121,7 +124,17 @@ public class CircuitBreaker {
         Duration duration = Duration.between(start, Instant.now());
         State currentState = state.get();
 
+        if (!shouldCountFailure(failure)) {
+            log.debug(
+                    "Circuit breaker '{}' ignored non-countable failure in {}ms: {}",
+                    name,
+                    duration.toMillis(),
+                    failure.getMessage());
+            return;
+        }
+
         lastFailureTime.set(Instant.now().toEpochMilli());
+        observer.onFailure(name, failure);
 
         if (currentState == State.HALF_OPEN) {
             // Any failure in HALF_OPEN should open the circuit
@@ -143,15 +156,38 @@ public class CircuitBreaker {
         log.warn("Circuit breaker '{}' operation failed in {}ms: {}", name, duration.toMillis(), failure.getMessage());
     }
 
+    private boolean shouldCountFailure(Throwable failure) {
+        Throwable rootCause = unwrapRootCause(failure);
+        if (rootCause instanceof ServiceException serviceException) {
+            return serviceException.getStatusCode() >= 500;
+        }
+        return !(rootCause instanceof CircuitBreakerOpenException);
+    }
+
+    private Throwable unwrapRootCause(Throwable failure) {
+        Throwable current = failure;
+        while (current.getCause() != null && current.getCause() != current) {
+            current = current.getCause();
+        }
+        return current;
+    }
+
     private void openCircuit() {
-        state.set(State.OPEN);
+        transitionTo(State.OPEN);
         successCount.set(0);
     }
 
     private void reset() {
-        state.set(State.CLOSED);
+        transitionTo(State.CLOSED);
         failureCount.set(0);
         successCount.set(0);
+    }
+
+    private void transitionTo(State nextState) {
+        State previousState = state.getAndSet(nextState);
+        if (previousState != nextState) {
+            observer.onTransition(name, previousState, nextState);
+        }
     }
 
     public State getState() {

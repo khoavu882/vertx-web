@@ -72,9 +72,13 @@ public class StartupApp {
                 .setEventLoopPoolSize(eventLoopPoolSize)
                 .setWorkerPoolSize(config.worker().poolSize() * deployment.workerPoolSizeMultiplier())
                 .setMaxWorkerExecuteTime(config.worker().maxExecuteTime())
+                .setMaxWorkerExecuteTimeUnit(TimeUnit.MILLISECONDS)
                 .setMaxEventLoopExecuteTime(deployment.maxEventLoopExecuteTimeMs())
+                .setMaxEventLoopExecuteTimeUnit(TimeUnit.MILLISECONDS)
                 .setBlockedThreadCheckInterval(deployment.blockedThreadCheckIntervalMs())
-                .setWarningExceptionTime(deployment.warningExceptionTimeMs());
+                .setBlockedThreadCheckIntervalUnit(TimeUnit.MILLISECONDS)
+                .setWarningExceptionTime(deployment.warningExceptionTimeMs())
+                .setWarningExceptionTimeUnit(TimeUnit.MILLISECONDS);
     }
 
     private static Future<Void> deployVerticles(ApplicationConfig config) {
@@ -101,6 +105,7 @@ public class StartupApp {
         DeploymentOptions workerOptions = new DeploymentOptions()
                 .setWorkerPoolSize(config.worker().poolSize())
                 .setMaxWorkerExecuteTime(config.worker().maxExecuteTime())
+                .setMaxWorkerExecuteTimeUnit(TimeUnit.MILLISECONDS)
                 .setWorkerPoolName(deployment.workerPoolName())
                 .setThreadingModel(ThreadingModel.WORKER);
 

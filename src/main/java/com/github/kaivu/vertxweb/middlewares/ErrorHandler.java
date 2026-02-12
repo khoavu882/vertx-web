@@ -101,8 +101,8 @@ public class ErrorHandler {
             errorResponse.put("correlationId", correlationId);
         }
 
-        // Add additional debug info in development mode
-        if (!applicationConfig.logging().logLevel().equalsIgnoreCase("PRODUCTION")) {
+        // Only expose stack traces when explicitly enabled.
+        if (applicationConfig.logging().includeStackTraceInErrorResponse()) {
             errorResponse.put("stackTrace", getStackTrace(failure));
         }
 

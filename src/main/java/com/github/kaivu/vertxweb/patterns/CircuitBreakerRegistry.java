@@ -1,6 +1,7 @@
 package com.github.kaivu.vertxweb.patterns;
 
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
+import com.github.kaivu.vertxweb.observability.metrics.MetricsFacade;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import io.vertx.core.Vertx;
@@ -17,12 +18,14 @@ public class CircuitBreakerRegistry {
 
     private final Vertx vertx;
     private final ApplicationConfig appConfig;
+    private final MetricsFacade metricsFacade;
     private final ConcurrentMap<String, CircuitBreaker> circuitBreakers;
 
     @Inject
-    public CircuitBreakerRegistry(Vertx vertx, ApplicationConfig appConfig) {
+    public CircuitBreakerRegistry(Vertx vertx, ApplicationConfig appConfig, MetricsFacade metricsFacade) {
         this.vertx = vertx;
         this.appConfig = appConfig;
+        this.metricsFacade = metricsFacade;
         this.circuitBreakers = new ConcurrentHashMap<>();
 
         // Initialize common circuit breakers
@@ -53,7 +56,18 @@ public class CircuitBreakerRegistry {
     }
 
     public CircuitBreaker createCircuitBreaker(String name, CircuitBreakerConfig config) {
-        CircuitBreaker circuitBreaker = new CircuitBreaker(name, vertx, config);
+        CircuitBreaker circuitBreaker = new CircuitBreaker(name, vertx, config, new CircuitBreakerObserver() {
+            @Override
+            public void onTransition(String breakerName, CircuitBreaker.State from, CircuitBreaker.State to) {
+                metricsFacade.recordCircuitBreakerTransition(breakerName, from.name(), to.name());
+            }
+
+            @Override
+            public void onFailure(String breakerName, Throwable failure) {
+                String failureType = failure != null ? failure.getClass().getSimpleName() : "unknown";
+                metricsFacade.recordCircuitBreakerFailure(breakerName, failureType);
+            }
+        });
         circuitBreakers.put(name, circuitBreaker);
         log.info(
                 "Created circuit breaker '{}' with config: failures={}, successes={}, timeout={}ms, resetTimeout={}ms",

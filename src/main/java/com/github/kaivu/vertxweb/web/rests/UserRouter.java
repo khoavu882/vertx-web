@@ -1,5 +1,6 @@
 package com.github.kaivu.vertxweb.web.rests;
 
+import com.github.kaivu.vertxweb.config.ApplicationConfig;
 import com.github.kaivu.vertxweb.constants.AppConstants;
 import com.github.kaivu.vertxweb.services.UserService;
 import com.github.kaivu.vertxweb.web.RouterHelper;
@@ -25,16 +26,17 @@ public class UserRouter {
     private final RouterHelper routerHelper;
 
     @Inject
-    public UserRouter(Vertx vertx, UserService userService, RouterHelper routerHelper) {
+    public UserRouter(Vertx vertx, ApplicationConfig appConfig, UserService userService, RouterHelper routerHelper) {
         this.router = Router.router(vertx);
         this.userService = userService;
         this.routerHelper = routerHelper;
-        setupRoutes();
+        setupRoutes(appConfig);
     }
 
-    private void setupRoutes() {
+    private void setupRoutes(ApplicationConfig appConfig) {
         // Add BodyHandler to parse request bodies
-        router.route().handler(BodyHandler.create());
+        router.route()
+                .handler(BodyHandler.create().setBodyLimit(appConfig.server().maxBodySizeBytes()));
 
         // API routes using clean async pattern
         router.get().handler(ctx -> RouterHelper.handleAsync(ctx, this::getAllUsers));

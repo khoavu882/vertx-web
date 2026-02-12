@@ -6,6 +6,14 @@ import com.github.kaivu.vertxweb.consumers.HealthCheckConsumer;
 import com.github.kaivu.vertxweb.middlewares.AuthHandler;
 import com.github.kaivu.vertxweb.middlewares.ErrorHandler;
 import com.github.kaivu.vertxweb.middlewares.LoggingHandler;
+import com.github.kaivu.vertxweb.observability.health.DefaultHealthCheckRegistry;
+import com.github.kaivu.vertxweb.observability.health.DefaultProbeOrchestrator;
+import com.github.kaivu.vertxweb.observability.health.HealthCheckRegistry;
+import com.github.kaivu.vertxweb.observability.health.ProbeOrchestrator;
+import com.github.kaivu.vertxweb.observability.metrics.MetricsFacade;
+import com.github.kaivu.vertxweb.observability.metrics.MetricsScrapeEndpoint;
+import com.github.kaivu.vertxweb.observability.metrics.MicrometerMetricsFacade;
+import com.github.kaivu.vertxweb.observability.metrics.NoopMetricsFacade;
 import com.github.kaivu.vertxweb.patterns.CircuitBreakerRegistry;
 import com.github.kaivu.vertxweb.repositories.ProductRepository;
 import com.github.kaivu.vertxweb.repositories.ProductRepositoryImpl;
@@ -14,6 +22,7 @@ import com.github.kaivu.vertxweb.services.UserService;
 import com.github.kaivu.vertxweb.web.RouterHelper;
 import com.github.kaivu.vertxweb.web.rests.CommonRouter;
 import com.github.kaivu.vertxweb.web.rests.HealthRouter;
+import com.github.kaivu.vertxweb.web.rests.MetricsRouter;
 import com.github.kaivu.vertxweb.web.rests.ProductRouter;
 import com.github.kaivu.vertxweb.web.rests.UserRouter;
 import com.github.kaivu.vertxweb.web.routes.RouterConfig;
@@ -64,6 +73,8 @@ public class AppModule extends AbstractModule {
 
         // Bind patterns and infrastructure
         bind(CircuitBreakerRegistry.class).in(Singleton.class);
+        bind(ProbeOrchestrator.class).to(DefaultProbeOrchestrator.class).in(Singleton.class);
+        bind(HealthCheckRegistry.class).to(DefaultHealthCheckRegistry.class).in(Singleton.class);
 
         // Bind EventBus consumers
         bind(AnalyticsConsumer.class).in(Singleton.class);
@@ -73,6 +84,7 @@ public class AppModule extends AbstractModule {
         // Bind routers - these also have @Inject constructors
         bind(CommonRouter.class).in(Singleton.class);
         bind(HealthRouter.class).in(Singleton.class);
+        bind(MetricsRouter.class).in(Singleton.class);
         bind(UserRouter.class).in(Singleton.class);
         bind(ProductRouter.class).in(Singleton.class);
 
@@ -88,5 +100,27 @@ public class AppModule extends AbstractModule {
     @Singleton
     Router provideMainRouter(Vertx vertx) {
         return Router.router(vertx);
+    }
+
+    @Provides
+    @Singleton
+    MetricsFacade provideMetricsFacade(ApplicationConfig applicationConfig) {
+        if (!applicationConfig.observability().metrics().enable()) {
+            return new NoopMetricsFacade();
+        }
+        String backend = applicationConfig.observability().metrics().backend();
+        if ("micrometer".equalsIgnoreCase(backend)) {
+            return new MicrometerMetricsFacade(applicationConfig);
+        }
+        return new NoopMetricsFacade();
+    }
+
+    @Provides
+    @Singleton
+    MetricsScrapeEndpoint provideMetricsScrapeEndpoint(MetricsFacade metricsFacade) {
+        if (metricsFacade instanceof MetricsScrapeEndpoint scrapeEndpoint) {
+            return scrapeEndpoint;
+        }
+        return new NoopMetricsFacade();
     }
 }

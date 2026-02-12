@@ -7,16 +7,14 @@ import com.github.kaivu.vertxweb.context.CorrelationContext;
 import com.github.kaivu.vertxweb.patterns.CircuitBreakerRegistry;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import com.google.inject.Inject;
-import io.smallrye.mutiny.Uni;
-import io.smallrye.mutiny.subscription.UniEmitter;
 import io.vertx.core.Vertx;
 import io.vertx.core.eventbus.EventBus;
 import io.vertx.core.eventbus.Message;
 import io.vertx.core.json.JsonObject;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Random;
-import java.util.function.Consumer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -69,15 +67,16 @@ public class AnalyticsConsumer implements EventBusConsumer {
             // Use circuit breaker with wrapper's executeBlocking for resilient processing
             circuitBreakerRegistry
                     .getAnalyticsCircuitBreaker()
-                    .execute(() -> Uni.createFrom().emitter((Consumer<UniEmitter<? super JsonObject>>) (emitter) -> {
-                        finalWrapper
-                                .executeBlocking(
-                                        () -> generateAnalyticsReport(finalContext),
-                                        appConfig.analytics().executionTimeoutMs(),
-                                        "Analytics report generation failed")
-                                .onSuccess(emitter::complete)
-                                .onFailure(emitter::fail);
-                    }))
+                    .execute(() -> finalWrapper
+                            .executeBlockingUni(
+                                    () -> generateAnalyticsReport(finalContext),
+                                    error -> new ServiceException(
+                                            "Analytics report generation failed",
+                                            AppConstants.Status.INTERNAL_SERVER_ERROR))
+                            .ifNoItem()
+                            .after(Duration.ofMillis(appConfig.analytics().executionTimeoutMs()))
+                            .failWith(() -> new ServiceException(
+                                    "Analytics report generation timed out", AppConstants.Status.SERVICE_UNAVAILABLE)))
                     .subscribe()
                     .with(
                             report -> {

@@ -9,7 +9,11 @@ app:
     host: 0.0.0.0
     request-timeout-ms: 30000
     api-prefix: /api
-    enable-cors: true
+    cors:
+      enable: true
+      allowed-origins: "*"
+      allow-credentials: false
+    max-body-size-bytes: 1048576
   
   worker:
     pool-size: 10
@@ -25,6 +29,7 @@ app:
     enable-request-logging: true
     log-request-bodies: false
     log-level: INFO
+    include-stack-trace-in-error-response: false
   
   service:
     default-timeout-ms: 500
@@ -70,3 +75,17 @@ app:
     min-app-verticle-instances: 1
     worker-pool-name: app-worker-pool
     shutdown-timeout-seconds: 30
+
+  observability:
+    health:
+      enable: true
+      expose-detailed: true
+      check-timeout-ms: 1000
+      legacy-aliases: true
+    metrics:
+      enable: true
+      backend: micrometer
+      endpoint-path: /metrics
+      exposure: protected
+      include-jvm: true
+      include-system: true

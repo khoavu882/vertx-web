@@ -7,7 +7,7 @@ import io.smallrye.config.WithDefault;
  * Application configuration interface using SmallRye Config.
  *
  * This interface replaces the old AppConfig class and uses SmallRye Config
- * annotations for automatic property binding from application.properties
+ * annotations for automatic property binding from application.yml
  * and environment variables.
  *
  * SmallRye Config automatically maps environment variables using the
@@ -56,6 +56,11 @@ public interface ApplicationConfig {
      */
     DeploymentConfig deployment();
 
+    /**
+     * Observability configuration section for health and metrics.
+     */
+    ObservabilityConfig observability();
+
     interface ServerConfig {
         @WithDefault("8080")
         int port();
@@ -69,8 +74,21 @@ public interface ApplicationConfig {
         @WithDefault("/api")
         String apiPrefix();
 
-        @WithDefault("true")
-        boolean enableCors();
+        CorsConfig cors();
+
+        @WithDefault("1048576")
+        long maxBodySizeBytes();
+
+        interface CorsConfig {
+            @WithDefault("true")
+            boolean enable();
+
+            @WithDefault("*")
+            String allowedOrigins();
+
+            @WithDefault("false")
+            boolean allowCredentials();
+        }
     }
 
     interface WorkerConfig {
@@ -104,6 +122,9 @@ public interface ApplicationConfig {
 
         @WithDefault("INFO")
         String logLevel();
+
+        @WithDefault("false")
+        boolean includeStackTraceInErrorResponse();
     }
 
     interface ServiceConfig {
@@ -223,5 +244,45 @@ public interface ApplicationConfig {
 
         @WithDefault("30")
         int shutdownTimeoutSeconds();
+    }
+
+    interface ObservabilityConfig {
+        HealthConfig health();
+
+        MetricsConfig metrics();
+
+        interface HealthConfig {
+            @WithDefault("true")
+            boolean enable();
+
+            @WithDefault("true")
+            boolean exposeDetailed();
+
+            @WithDefault("1000")
+            long checkTimeoutMs();
+
+            @WithDefault("true")
+            boolean legacyAliases();
+        }
+
+        interface MetricsConfig {
+            @WithDefault("true")
+            boolean enable();
+
+            @WithDefault("micrometer")
+            String backend();
+
+            @WithDefault("/metrics")
+            String endpointPath();
+
+            @WithDefault("protected")
+            String exposure();
+
+            @WithDefault("true")
+            boolean includeJvm();
+
+            @WithDefault("true")
+            boolean includeSystem();
+        }
     }
 }

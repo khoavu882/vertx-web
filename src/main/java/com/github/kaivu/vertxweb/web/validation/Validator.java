@@ -45,24 +45,28 @@ public class Validator {
     }
 
     public static class Products {
-        public static final Validator CREATE = Validator.of(
-                ValidationRule.required("name"),
-                ValidationRule.required("category"),
-                ValidationRule.required("price"),
-                ValidationRule.minLength("name", 2),
-                ValidationRule.maxLength("name", 100), // TODO: Move to ApplicationConfig
-                ValidationRule.minLength("category", 2),
-                ValidationRule.maxLength("category", 50),
-                ValidationRule.positiveNumber("price"),
-                ValidationRule.integerRange("quantity", 0, 10000));
+        public static Validator create(int maxNameLength) {
+            return Validator.of(
+                    ValidationRule.required("name"),
+                    ValidationRule.required("category"),
+                    ValidationRule.required("price"),
+                    ValidationRule.minLength("name", 2),
+                    ValidationRule.maxLength("name", maxNameLength),
+                    ValidationRule.minLength("category", 2),
+                    ValidationRule.maxLength("category", 50),
+                    ValidationRule.positiveNumber("price"),
+                    ValidationRule.integerRange("quantity", 0, 10000));
+        }
 
-        public static final Validator UPDATE = Validator.of(
-                ValidationRule.minLength("name", 2),
-                ValidationRule.maxLength("name", 100), // TODO: Move to ApplicationConfig
-                ValidationRule.minLength("category", 2),
-                ValidationRule.maxLength("category", 50),
-                ValidationRule.positiveNumber("price"),
-                ValidationRule.integerRange("quantity", 0, 10000));
+        public static Validator update(int maxNameLength) {
+            return Validator.of(
+                    ValidationRule.minLength("name", 2),
+                    ValidationRule.maxLength("name", maxNameLength),
+                    ValidationRule.minLength("category", 2),
+                    ValidationRule.maxLength("category", 50),
+                    ValidationRule.positiveNumber("price"),
+                    ValidationRule.integerRange("quantity", 0, 10000));
+        }
 
         public static final Validator STOCK_UPDATE =
                 Validator.of(ValidationRule.required("quantity"), ValidationRule.integerRange("quantity", 0, 10000));

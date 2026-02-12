@@ -1,7 +1,9 @@
 package com.github.kaivu.vertxweb.web.rests;
 
+import com.github.kaivu.vertxweb.config.ApplicationConfig;
 import com.github.kaivu.vertxweb.constants.AppConstants;
 import com.github.kaivu.vertxweb.context.ContextAwareVertxWrapper;
+import com.github.kaivu.vertxweb.observability.metrics.MetricsFacade;
 import com.github.kaivu.vertxweb.services.ProductService;
 import com.github.kaivu.vertxweb.web.RouterHelper;
 import com.github.kaivu.vertxweb.web.validation.ValidationResult;
@@ -25,20 +27,30 @@ public class ProductRouter {
     @Getter
     private final Router router;
 
+    private final ApplicationConfig appConfig;
     private final ProductService productService;
     private final RouterHelper routerHelper;
+    private final MetricsFacade metricsFacade;
 
     @Inject
-    public ProductRouter(Vertx vertx, ProductService productService, RouterHelper routerHelper) {
+    public ProductRouter(
+            Vertx vertx,
+            ApplicationConfig appConfig,
+            ProductService productService,
+            RouterHelper routerHelper,
+            MetricsFacade metricsFacade) {
         this.router = Router.router(vertx);
+        this.appConfig = appConfig;
         this.productService = productService;
         this.routerHelper = routerHelper;
-        setupRoutes();
+        this.metricsFacade = metricsFacade;
+        setupRoutes(appConfig);
     }
 
-    private void setupRoutes() {
+    private void setupRoutes(ApplicationConfig appConfig) {
         // Add BodyHandler to parse request bodies
-        router.route().handler(BodyHandler.create());
+        router.route()
+                .handler(BodyHandler.create().setBodyLimit(appConfig.server().maxBodySizeBytes()));
 
         // API routes using clean async pattern
         router.get().handler(ctx -> RouterHelper.handleAsync(ctx, this::getAllProducts));
@@ -75,7 +87,9 @@ public class ProductRouter {
         JsonObject body = routerHelper.validateRequestBody(ctx);
 
         // Apply validation rules using RouterHelper
-        ValidationResult validation = Validator.Products.CREATE.validate(body);
+        ValidationResult validation = Validator.Products.create(
+                        appConfig.validation().maxNameLength())
+                .validate(body);
         routerHelper.handleValidationErrors(validation);
 
         return productService
@@ -135,8 +149,11 @@ public class ProductRouter {
         // Enrich with correlation context for EventBus
         wrapper.enrichEventBusMessage(requestData);
 
+        long startedAt = System.currentTimeMillis();
         ctx.vertx().eventBus().request("app.worker.analytics-report", requestData, reply -> {
             if (reply.succeeded()) {
+                metricsFacade.recordEventBusRequest(
+                        "app.worker.analytics-report", "success", System.currentTimeMillis() - startedAt);
                 JsonObject report = new JsonObject(reply.result().body().toString());
 
                 wrapper.logEvent(
@@ -148,6 +165,8 @@ public class ProductRouter {
 
                 sendJsonResponse(ctx, HTTP_OK, report);
             } else {
+                metricsFacade.recordEventBusRequest(
+                        "app.worker.analytics-report", "error", System.currentTimeMillis() - startedAt);
                 // Extract status code from ServiceException if available
                 int statusCode = AppConstants.Status.INTERNAL_SERVER_ERROR; // default
                 String errorMessage = "Failed to generate analytics report";
@@ -206,8 +225,11 @@ public class ProductRouter {
         // Enrich with correlation context for EventBus
         wrapper.enrichEventBusMessage(requestData);
 
+        long startedAt = System.currentTimeMillis();
         ctx.vertx().eventBus().request("app.worker.batch-operation", requestData, reply -> {
             if (reply.succeeded()) {
+                metricsFacade.recordEventBusRequest(
+                        "app.worker.batch-operation", "success", System.currentTimeMillis() - startedAt);
                 JsonObject result = new JsonObject(reply.result().body().toString());
 
                 wrapper.logEvent(
@@ -221,6 +243,8 @@ public class ProductRouter {
 
                 sendJsonResponse(ctx, HTTP_OK, result);
             } else {
+                metricsFacade.recordEventBusRequest(
+                        "app.worker.batch-operation", "error", System.currentTimeMillis() - startedAt);
                 // Extract status code from ServiceException
                 int statusCode = AppConstants.Status.INTERNAL_SERVER_ERROR;
                 String errorMessage = "Batch operation failed";

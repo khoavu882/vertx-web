@@ -157,10 +157,11 @@ public class UserService {
                         default -> throw new ServiceException("User not found", AppConstants.Status.NOT_FOUND);
                     };
                 })
-                .onFailure(ServiceException.class)
-                .recoverWithUni(failure -> Uni.createFrom().failure(failure))
                 .onFailure()
                 .transform(throwable -> {
+                    if (throwable instanceof ServiceException) {
+                        return throwable;
+                    }
                     log.error("Error fetching user: {}", userId, throwable);
                     return new ServiceException("Failed to fetch user", AppConstants.Status.INTERNAL_SERVER_ERROR);
                 });
@@ -257,7 +258,7 @@ public class UserService {
 
         log.info("Updating user: {}", userId);
 
-        return circuitBreakerRegistry.getDatabaseCircuitBreaker().execute(() -> getUserByIdWithContext(userId, ctx)
+        return circuitBreakerRegistry.getDatabaseCircuitBreaker().execute(() -> performGetUserById(userId)
                 .onItem()
                 .delayIt()
                 .by(Duration.ofMillis(appConfig.service().updateBaseDelayMs()
@@ -309,7 +310,7 @@ public class UserService {
 
         log.info("Deleting user: {}", userId);
 
-        return circuitBreakerRegistry.getDatabaseCircuitBreaker().execute(() -> getUserByIdWithContext(userId, ctx)
+        return circuitBreakerRegistry.getDatabaseCircuitBreaker().execute(() -> performGetUserById(userId)
                 .onItem()
                 .delayIt()
                 .by(Duration.ofMillis(appConfig.service().deleteBaseDelayMs()
