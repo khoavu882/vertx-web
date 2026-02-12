@@ -24,6 +24,17 @@ class UserServiceTest {
     private static final Duration AWAIT_TIMEOUT = Duration.ofSeconds(2);
 
     @Test
+    void getAllUsersShouldReturnUsersPayload() throws Exception {
+        try (TestFixture fixture = TestFixture.start()) {
+            JsonObject result = await(fixture.userService.getAllUsers());
+
+            assertEquals(3, result.getInteger("total"));
+            assertEquals(3, result.getJsonArray("users").size());
+            assertTrue(result.containsKey(JsonKeys.TIMESTAMP));
+        }
+    }
+
+    @Test
     void getUserByIdShouldFailWhenIdIsBlank() throws Exception {
         try (TestFixture fixture = TestFixture.start()) {
             ServiceException failure =
@@ -44,6 +55,25 @@ class UserServiceTest {
     }
 
     @Test
+    void createUserShouldFailWhenPayloadOrRequiredFieldsAreMissing() throws Exception {
+        try (TestFixture fixture = TestFixture.start()) {
+            ServiceException emptyPayload =
+                    assertThrows(ServiceException.class, () -> await(fixture.userService.createUser(new JsonObject())));
+            assertEquals(HttpStatusCodes.BAD_REQUEST, emptyPayload.getStatusCode());
+
+            ServiceException missingName = assertThrows(
+                    ServiceException.class,
+                    () -> await(fixture.userService.createUser(new JsonObject().put("email", "alice@example.com"))));
+            assertEquals(HttpStatusCodes.BAD_REQUEST, missingName.getStatusCode());
+
+            ServiceException missingEmail = assertThrows(
+                    ServiceException.class,
+                    () -> await(fixture.userService.createUser(new JsonObject().put("name", "Alice"))));
+            assertEquals(HttpStatusCodes.BAD_REQUEST, missingEmail.getStatusCode());
+        }
+    }
+
+    @Test
     void createUserShouldReturnExpectedPayload() throws Exception {
         try (TestFixture fixture = TestFixture.start()) {
             JsonObject result = await(fixture.userService.createUser(
@@ -58,6 +88,25 @@ class UserServiceTest {
     }
 
     @Test
+    void updateUserShouldFailForInvalidInputAndUnknownId() throws Exception {
+        try (TestFixture fixture = TestFixture.start()) {
+            ServiceException blankId = assertThrows(
+                    ServiceException.class,
+                    () -> await(fixture.userService.updateUser(" ", new JsonObject().put("name", "A"))));
+            assertEquals(HttpStatusCodes.BAD_REQUEST, blankId.getStatusCode());
+
+            ServiceException emptyPayload = assertThrows(
+                    ServiceException.class, () -> await(fixture.userService.updateUser("1", new JsonObject())));
+            assertEquals(HttpStatusCodes.BAD_REQUEST, emptyPayload.getStatusCode());
+
+            ServiceException unknownUser = assertThrows(
+                    ServiceException.class,
+                    () -> await(fixture.userService.updateUser("999", new JsonObject().put("name", "A"))));
+            assertEquals(HttpStatusCodes.NOT_FOUND, unknownUser.getStatusCode());
+        }
+    }
+
+    @Test
     void updateUserShouldMergeProvidedFields() throws Exception {
         try (TestFixture fixture = TestFixture.start()) {
             JsonObject result =
@@ -67,6 +116,19 @@ class UserServiceTest {
             assertEquals("Updated User", result.getString("name"));
             assertEquals("john@example.com", result.getString("email"));
             assertTrue(result.containsKey("updatedAt"));
+        }
+    }
+
+    @Test
+    void deleteUserShouldFailForInvalidInputAndUnknownId() throws Exception {
+        try (TestFixture fixture = TestFixture.start()) {
+            ServiceException blankId =
+                    assertThrows(ServiceException.class, () -> await(fixture.userService.deleteUser(" ")));
+            assertEquals(HttpStatusCodes.BAD_REQUEST, blankId.getStatusCode());
+
+            ServiceException unknownUser =
+                    assertThrows(ServiceException.class, () -> await(fixture.userService.deleteUser("999")));
+            assertEquals(HttpStatusCodes.NOT_FOUND, unknownUser.getStatusCode());
         }
     }
 

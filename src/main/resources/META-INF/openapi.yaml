@@ -4,7 +4,7 @@ info:
   version: "1.0.0"
   description: API documentation for the Vert.x Web learning project.
 servers:
-  - url: http://localhost:8080
+  - url: http://localhost:8081
     description: Local development server
 tags:
   - name: Common

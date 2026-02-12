@@ -21,6 +21,23 @@ Reactive Vert.x + Guice demo backend with dual-verticle runtime and EventBus-dri
 - Full validation: `./gradlew clean check`
 - Generate OpenAPI artifacts: `./gradlew generateOpenApiSpec`
 
+## Architecture Review Status (2026-02-12)
+
+Aligned with `claudedocs/comprehensive_architectural_review.md`:
+
+- Completed:
+  - OpenAPI documentation endpoints and Swagger UI (`/openapi.yaml`, `/openapi.json`, `/docs`)
+  - Standardized router sub-router composition (`getRouter()` + mount from `RouterConfig`)
+  - Distributed tracing integration (OpenTelemetry + trace header exposure)
+  - Circuit breaker usage consistency across user/product service operations
+  - Domain-based constants split into dedicated classes under `constants/`
+- Remaining blockers:
+  - JWT verification/auth hardening (current auth is demo-only)
+  - Real database integration (current data layer is simulated/in-memory)
+  - Comprehensive test coverage target (80%+) and coverage gating
+- Important pending:
+  - Production CORS policy tightening (default still uses wildcard origins)
+
 ## Architecture Overview
 
 The service runs with two verticle roles:
@@ -94,6 +111,7 @@ Observability modules live under:
 
 - `src/main/java/com/github/kaivu/vertxweb/observability/health`
 - `src/main/java/com/github/kaivu/vertxweb/observability/metrics`
+- `src/main/java/com/github/kaivu/vertxweb/observability/tracing`
 
 Health model:
 
@@ -109,6 +127,12 @@ Metrics model:
 - Default exposure in `application.yml` is `protected`.
 
 EventBus and circuit-breaker metrics are recorded through `MetricsFacade`.
+
+Tracing model:
+
+- `TracingService` creates HTTP server spans and EventBus consumer spans.
+- `X-Trace-ID` is propagated in HTTP responses when tracing is enabled.
+- Exporter is config-driven (`logging` or `otlp`) via `app.observability.tracing`.
 
 ## EventBus Structure
 
@@ -132,6 +156,7 @@ Key directories:
 - `src/main/java/com/github/kaivu/vertxweb/consumers` for worker-side EventBus handlers
 - `src/main/java/com/github/kaivu/vertxweb/services` for business service logic
 - `src/main/java/com/github/kaivu/vertxweb/patterns` for circuit breaker and registry
+- `src/main/java/com/github/kaivu/vertxweb/constants` for split domain/base constants
 - `src/main/java/com/github/kaivu/vertxweb/observability` for health and metrics abstractions
 - `src/test/java/com/github/kaivu/vertxweb/integration` for integration tests
 - `src/main/resources/application.yml` for default runtime config
@@ -174,9 +199,12 @@ app:
 
 ## Tests
 
-Integration coverage exists for observability route contracts in:
+Current test suites:
 
 - `src/test/java/com/github/kaivu/vertxweb/integration/ObservabilityRoutesIntegrationTest.java`
+- `src/test/java/com/github/kaivu/vertxweb/services/UserServiceTest.java`
+- `src/test/java/com/github/kaivu/vertxweb/services/ProductServiceCircuitBreakerTest.java`
+- `src/test/java/com/github/kaivu/vertxweb/web/validation/ValidatorTest.java`
 
 Current covered contracts:
 
@@ -184,6 +212,9 @@ Current covered contracts:
 - Health canonical routes
 - Health alias enable/disable behavior
 - OpenAPI/docs endpoint exposure (`/openapi.yaml`, `/openapi.json`, `/docs`)
+- Trace header behavior (`X-Trace-ID` enabled/disabled)
+- Circuit breaker timeout/open-state behavior (user endpoints)
+- Service validation and error-path unit assertions
 
 ## Important Note
 
@@ -195,3 +226,4 @@ Security is intentionally weak for demo/boilerplate use. Replace auth behavior i
 - [SmallRye Config](https://smallrye.io/smallrye-config/)
 - [SmallRye OpenAPI](https://github.com/smallrye/smallrye-open-api)
 - [Micrometer](https://micrometer.io/)
+- [OpenTelemetry Java](https://opentelemetry.io/docs/languages/java/)
