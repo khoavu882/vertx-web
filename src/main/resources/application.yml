@@ -79,9 +79,6 @@ app:
     max-event-loop-execute-time-ms: 5000
     blocked-thread-check-interval-ms: 1000
     warning-exception-time-ms: 5000
-    enable-app-verticle-auto-sizing: true
-    app-verticle-instance-divisor: 2
-    min-app-verticle-instances: 1
     worker-pool-name: app-worker-pool
     shutdown-timeout-seconds: 30
 

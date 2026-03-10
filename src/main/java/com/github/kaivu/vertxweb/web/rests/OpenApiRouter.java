@@ -1,6 +1,7 @@
 package com.github.kaivu.vertxweb.web.rests;
 
-import com.github.kaivu.vertxweb.constants.*;
+import com.github.kaivu.vertxweb.constants.HttpStatusCodes;
+import com.github.kaivu.vertxweb.constants.OpenApiConstants;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;

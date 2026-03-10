@@ -1,7 +1,11 @@
 package com.github.kaivu.vertxweb.web.rests;
 
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
-import com.github.kaivu.vertxweb.constants.*;
+import com.github.kaivu.vertxweb.constants.HealthConstants;
+import com.github.kaivu.vertxweb.constants.HttpConstants;
+import com.github.kaivu.vertxweb.constants.HttpStatusCodes;
+import com.github.kaivu.vertxweb.constants.JsonKeys;
+import com.github.kaivu.vertxweb.constants.OutcomeConstants;
 import com.github.kaivu.vertxweb.observability.health.CheckResult;
 import com.github.kaivu.vertxweb.observability.health.CheckStatus;
 import com.github.kaivu.vertxweb.observability.health.HealthPayload;

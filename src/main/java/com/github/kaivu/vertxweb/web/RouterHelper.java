@@ -1,6 +1,9 @@
 package com.github.kaivu.vertxweb.web;
 
-import com.github.kaivu.vertxweb.constants.*;
+import com.github.kaivu.vertxweb.constants.ContextKeys;
+import com.github.kaivu.vertxweb.constants.HttpConstants;
+import com.github.kaivu.vertxweb.constants.HttpStatusCodes;
+import com.github.kaivu.vertxweb.constants.MessageConstants;
 import com.github.kaivu.vertxweb.context.ContextAwareVertxWrapper;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import com.github.kaivu.vertxweb.web.validation.ValidationResult;
@@ -9,7 +12,6 @@ import io.smallrye.mutiny.Uni;
 import io.vertx.core.http.HttpHeaders;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
-import java.util.function.Consumer;
 import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -103,25 +105,6 @@ public class RouterHelper {
         } catch (Exception e) {
             handleFailureWithContext(ctx, e, wrapper);
         }
-    }
-
-    /**
-     * Handles a Uni response with standard success and error handling.
-     * This is the primary method for processing service responses.
-     *
-     * @param <T> The type of the Uni result
-     * @param uni The Uni to handle
-     * @param ctx The routing context
-     * @param statusCode The HTTP status code for successful responses
-     * @return A Consumer that can be used to handle the Uni result
-     */
-    public <T> Consumer<T> handleUniResponse(Uni<JsonObject> uni, RoutingContext ctx, int statusCode) {
-        return result -> {
-            uni.subscribe()
-                    .with(
-                            response -> sendJsonResponse(ctx, statusCode, response),
-                            failure -> handleFailure(ctx, failure));
-        };
     }
 
     /**
@@ -230,14 +213,11 @@ public class RouterHelper {
      * @throws ServiceException if validation fails
      */
     public JsonObject validateRequestBodyWithRules(RoutingContext ctx, ValidationResult validationResult) {
-        JsonObject body = validateRequestBody(ctx);
-
         if (!validationResult.isValid()) {
             throw new ServiceException(
                     "Validation failed: " + validationResult.getAllErrors(), HttpStatusCodes.BAD_REQUEST);
         }
-
-        return body;
+        return validateRequestBody(ctx);
     }
 
     /**
@@ -265,13 +245,6 @@ public class RouterHelper {
                 .setStatusCode(statusCode)
                 .putHeader(HttpHeaders.CONTENT_TYPE, FULL_CONTENT_TYPE)
                 .end(response.encode());
-    }
-
-    /**
-     * Instance method for backwards compatibility.
-     */
-    public void sendJsonResponseInstance(RoutingContext ctx, int statusCode, JsonObject response) {
-        sendJsonResponse(ctx, statusCode, response);
     }
 
     /**

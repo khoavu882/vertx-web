@@ -1,7 +1,9 @@
 package com.github.kaivu.vertxweb.middlewares;
 
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
-import com.github.kaivu.vertxweb.constants.*;
+import com.github.kaivu.vertxweb.constants.ContextKeys;
+import com.github.kaivu.vertxweb.constants.HttpConstants;
+import com.github.kaivu.vertxweb.constants.HttpStatusCodes;
 import com.github.kaivu.vertxweb.context.ContextAwareVertxWrapper;
 import com.github.kaivu.vertxweb.context.CorrelationContext;
 import com.github.kaivu.vertxweb.observability.tracing.TracingService;

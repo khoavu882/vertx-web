@@ -2,140 +2,168 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Runtime Requirements
+
+- **Java:** `21.0.7-graal` (GraalVM) — use SDKMAN: `source "$HOME/.sdkman/bin/sdkman-init.sh" && sdk env`
+- **Gradle wrapper:** 9.0.0 (via `./gradlew` — ignore the `gradle=8.14.4` in `.sdkmanrc`, that's outdated)
+
 ## Development Commands
 
-- **Build:** `./gradlew build`
-- **Lint/Format:** `./gradlew spotlessCheck` (check), `./gradlew spotlessApply` (auto-format)
-- **Test:** `./gradlew test`
-- **Test (single):** `./gradlew test --tests ClassName.methodName`
-- **Validate:** `./gradlew clean test check` (full validation)
-- **Run app:** `./gradlew run`
+```bash
+./gradlew build                              # compile + test + spotless check
+./gradlew run                                # run the application (port 8081)
+./gradlew test                               # run all tests
+./gradlew test --tests ClassName.methodName  # run single test
+./gradlew clean check                        # full validation: tests + JaCoCo coverage gate
+./gradlew spotlessCheck                      # check formatting (fails CI if violated)
+./gradlew spotlessApply                      # auto-format all Java files
+./gradlew generateOpenApiSpec                # generate openapi.yaml / openapi.json artifacts
+```
 
-**Note:** Test dependencies are configured (JUnit 5 + Vert.x JUnit5 extension), but no test source files exist yet.
+JaCoCo coverage gate: 80% line coverage required on `UserService`, `ProductService`, `Validator`.
 
 ## Architecture Overview
 
-### Application Bootstrap
-The application uses a dual-verticle architecture with auto-scaling:
-- `StartupApp.java` - Entry point that creates `Vertx` instance with tuned `VertxOptions`, deploys both verticles, and sets up graceful shutdown
-- `AppVerticle` - Main HTTP server verticle. Multiple instances deployed based on CPU cores (configurable via `app.deployment.*`). Each instance creates its own Guice `Injector` and `RouterConfig`
-- `WorkerVerticle` - Background worker deployed with `ThreadingModel.WORKER`. Registers all `EventBusConsumer` implementations
+### Deployment Model (Kubernetes-native)
+
+**1 pod = 1 JVM = 1 AppVerticle + 1 WorkerVerticle.** Horizontal scaling is done at the pod level by Kubernetes. Never configure `setInstances(n > 1)` in verticle deployment.
+
+```
+StartupApp
+  ├── AppVerticle  (event-loop, HTTP :8081)
+  │     └── RouterConfig → middleware pipeline → sub-routers
+  └── WorkerVerticle  (worker-pool, EventBus consumers)
+        └── AnalyticsConsumer | BatchOperationConsumer | HealthCheckConsumer | LegacyOperationConsumer
+```
+
+### Startup & Config
+
+`StartupApp.main()` loads config **once** into `cachedConfig` (static field). `AppModule` takes `ApplicationConfig` as a constructor argument — it does **not** call `ConfigProvider.createConfig()` internally. Do not add extra `ConfigProvider.createConfig()` call sites.
+
+Vert.x options (thread pool sizes) are derived from `app.deployment.*` and `app.worker.*`. Instance count is always `1` — no auto-sizing logic remains.
 
 ### Dependency Injection
-- Uses Google Guice (`AppModule.java`)
-- `AppModule` receives `Vertx` instance and loads config via `ConfigProvider.createConfig()`
-- All services, routers, middleware, and consumers bound as `@Singleton` in `configure()`
-- `Router` provided via `@Provides` factory method since it requires `Router.router(vertx)`
-- Both `AppVerticle` and `WorkerVerticle` create their own `Injector` independently
 
-### HTTP Routing Architecture
-- `RouterConfig.java` - Central router configuration, all dependencies constructor-injected
-- Middleware pipeline order: `TimeoutHandler` → `CorsHandler` (global) → `LoggingHandler` → `AuthHandler` → Route handlers → `ErrorHandler` (failure handler)
-- API prefix: `/api` (configured via `app.server.api-prefix`)
-- CORS is global for all routes (configured via `app.server.cors.*`)
-- OPTIONS requests bypass auth automatically for CORS preflight support
-- Auth is **demo-only by design**: Bearer token presence check only, no JWT verification
-- Route structure:
-  - `/api/common/*` - Public routes (bypasses auth via `publicPaths` config check in `AuthHandler`)
-  - `/api/users/*` - Protected user endpoints (sub-router)
-  - `/api/products/*` - Protected product endpoints (sub-router)
-  - `/health/*` - Health check routes (configured directly on main router, not as sub-router)
-  - `/metrics` - Metrics endpoint (configured via `MetricsRouter`, protected or public based on config)
-- Each domain router (`UserRouter`, `ProductRouter`, `CommonRouter`) creates its own `Router.router(vertx)` and exposes it via `getRouter()`
-- `HealthRouter` and `MetricsRouter` use a different pattern: `configureRoutes(Router)` adds routes directly to the main router
+`AppModule` is the single Guice module. Everything bound as `@Singleton` via constructor injection (`@Inject`). Key `@Provides` factory methods:
+- `Router` — `Router.router(vertx)` (must be a factory call)
+- `MetricsFacade` — conditionally `MicrometerMetricsFacade` or `NoopMetricsFacade`
+- `MetricsScrapeEndpoint` — cast from `MetricsFacade` or `NoopMetricsFacade`
 
-### Request Handling Pattern
-All endpoints use `RouterHelper.handleAsync()` which:
-1. Creates a `ContextAwareVertxWrapper` from the HTTP request
-2. Extracts user/tenant context from headers (`X-Tenant-ID`)
-3. Stores the wrapper in `RoutingContext` as `"contextWrapper"`
-4. Subscribes to the `Uni<Void>` returned by the handler
-5. Logs request lifecycle with correlation IDs
-6. Routes failures through `ctx.fail()` to the `ErrorHandler`
+**Adding a new dependency:** write `@Inject` constructor, add `bind(MyClass.class).in(Singleton.class)` in `AppModule.configure()`.
 
-Router handler pattern:
+### HTTP Middleware Pipeline
+
+`RouterConfig` wires in this exact order:
+
+```
+TimeoutHandler → CorsHandler → LoggingHandler → AuthHandler → [sub-routers] → ErrorHandler (failureHandler)
+```
+
+All routers (domain and infrastructure) expose `getRouter()` and are mounted as sub-routers in `RouterConfig.setupRoutes()`. There is no `configureRoutes(Router)` pattern — every router uses sub-router composition.
+
+### Request Handler Pattern
+
 ```java
-router.get().handler(ctx -> RouterHelper.handleAsync(ctx, this::getAllUsers));
+router.get("/path").handler(ctx -> RouterHelper.handleAsync(ctx, this::myHandler));
 
-private Uni<Void> getAllUsers(RoutingContext ctx) {
-    return userService.getAllUsersWithContext(ctx)
-        .onItem().invoke(users -> RouterHelper.sendJsonResponse(ctx, AppConstants.Status.OK, users))
+private Uni<Void> myHandler(RoutingContext ctx) {
+    return myService.doWithContext(ctx)
+        .onItem().invoke(result -> RouterHelper.sendJsonResponse(ctx, HttpStatusCodes.OK, result))
         .replaceWithVoid();
 }
 ```
 
+`RouterHelper.handleAsync()` is **static**. It creates a `ContextAwareVertxWrapper`, stores it at `ContextKeys.ROUTING_CONTEXT_WRAPPER`, logs lifecycle events, and routes all failures to `ctx.fail()` → `ErrorHandler`.
+
 ### Service Layer
-- All services use Mutiny `Uni<T>` for reactive async operations
-- Dual method pattern: `methodName()` (legacy, passes `null` ctx) delegates to `methodNameWithContext(args, RoutingContext ctx)` (production, with correlation tracking)
-- Services extract `ContextAwareVertxWrapper` from `ctx.get("contextWrapper")` for correlation logging
-- Currently uses simulated/stubbed data (no real database) with configurable delays to simulate latency
-- `UserService` wraps operations with `CircuitBreakerRegistry.getDatabaseCircuitBreaker()`
-- `ProductService` delegates to `ProductRepository` interface (implemented by `ProductRepositoryImpl`)
 
-### Validation Framework
-- `Validator` class holds static validator instances per entity: `Validator.Users.CREATE`, `Validator.Products.CREATE`, etc.
-- Built from composable `ValidationRule` instances (`required`, `minLength`, `maxLength`, `email`, `positiveNumber`, `integerRange`)
-- Returns `ValidationResult` checked via `routerHelper.handleValidationErrors()`
+Services follow a **dual-method pattern**: `method(args)` (no context, delegates with null) → `methodWithContext(args, RoutingContext ctx)` (with correlation tracking). All operations are wrapped in a circuit breaker:
 
-### Circuit Breaker
-- Custom implementation in `patterns/CircuitBreaker.java` (not Vert.x circuit breaker)
-- States: `CLOSED` → `OPEN` → `HALF_OPEN` → `CLOSED`
-- Configured via `CircuitBreakerConfig` record (failure threshold, success threshold, timeouts)
-- `CircuitBreakerRegistry` provides named circuit breakers (e.g., `getDatabaseCircuitBreaker()`)
-- Wraps `Uni<T>` operations with timeout and failure counting
+```java
+return circuitBreakerRegistry.getDatabaseCircuitBreaker().execute(() -> performOp());
+```
 
-### EventBus Consumer Pattern
-- Interface: `EventBusConsumer` with `getEventAddress()` and `registerConsumer(EventBus)`
-- Consumers: `AnalyticsConsumer`, `BatchOperationConsumer`, `HealthCheckConsumer` (Guice-injected), `LegacyOperationConsumer` (manually instantiated)
-- All injected consumers receive `ApplicationConfig` via constructor
-- Registered in `WorkerVerticle.createConsumers()`
+Only `ServiceException` with HTTP status ≥ 500 counts as a circuit-breaker failure. 4xx errors do not trip the breaker.
+
+### EventBus Worker Communication
+
+HTTP-side routes use `eventBus().request(address, payload)` with reply/failure mapping. Consumer-side uses `message.reply(...)` on success or `message.fail(statusCode, reason)` on failure; `ReplyException.failureCode()` is mapped back to the HTTP status.
+
+See `claudedocs/eventbus_interaction.md` for sequence diagrams and troubleshooting table.
+
+**Active addresses:**
+
+| Address | Consumer | Notes |
+|---------|----------|-------|
+| `app.worker.analytics-report` | `AnalyticsConsumer` | triggered by `GET /api/products/analytics/report` |
+| `app.worker.batch-operation` | `BatchOperationConsumer` | valid ops: `insert`, `update`, `delete` (requires `confirmDelete=true`), `migrate` |
+| `app.health.check` | `HealthCheckConsumer` | readiness probe over EventBus |
+| `app.worker.operation` | `LegacyOperationConsumer` | legacy path |
 
 ### Context & Correlation
-- `ContextAwareVertxWrapper` extends `VertxWrapper` - provides correlation tracking across verticle boundaries
-- `CorrelationContext` carries request ID, correlation ID, user/tenant context, timing data
-- Supports MDC integration for structured logging
-- EventBus messages enriched with `_context`, `_correlationId`, `_requestId` fields via `enrichEventBusMessage()`
-- Factory methods: `fromHttpRequest()`, `fromEventBus()`, `fromEventBusMessage()`
 
-## Configuration
+`ContextAwareVertxWrapper.fromHttpRequest()` seeds a `CorrelationContext` with request ID, correlation ID (from `X-Correlation-ID` header or new UUID), trace/span IDs, source IP, and user-agent. Before EventBus sends, call `wrapper.enrichEventBusMessage(msg)` to inject `_context`, `_correlationId`, `_requestId`. On the consumer side, call `ContextAwareVertxWrapper.fromEventBusMessage(vertx, msg)` to restore context.
 
-- SmallRye Config with `@ConfigMapping(prefix = "app")` on `ApplicationConfig` interface
-- Config file: `src/main/resources/application.yml`
-- Loaded via `ConfigProvider.createConfig()` (uses SmallRye `ConfigProviderResolver`)
-- YAML-source presence is explicitly validated at startup
-- Environment variable override: `app.server.port` → `APP_SERVER_PORT`
-- All interfaces have `@WithDefault` annotations for sensible defaults
-- Config sections: `server`, `worker`, `security`, `logging`, `service`, `analytics`, `validation`, `deployment`, `observability`
-  - `server.cors`: CORS configuration (allowed origins, credentials, enabled/disabled)
-  - `server.request-timeout-ms`: Request timeout for `TimeoutHandler`
-  - `observability.health`: Health check configuration
-  - `observability.metrics`: Micrometer metrics endpoint configuration
+### Circuit Breaker
 
-## Build System
-- **Gradle 9.0** with wrapper scripts
-- Version properties in `gradle.properties` (Vert.x 4.5.14, Mutiny 2.6.2, Guice 7.0.0, SmallRye Config 3.13.4, Micrometer 1.12.12)
-- Main class: `com.github.kaivu.vertxweb.StartupApp`
-- Spotless plugin with Palantir Java Format enforced
+Custom FSM: `CLOSED → OPEN → HALF_OPEN → CLOSED`. Config keys under `app.service.*`:
+- `circuit-breaker-failure-threshold` (default 5)
+- `circuit-breaker-success-threshold` (default 3, for HALF_OPEN → CLOSED)
+- `circuit-breaker-timeout-ms` (default 10 000)
+- `circuit-breaker-reset-timeout-ms` (default 60 000, OPEN → HALF_OPEN wait)
 
 ## API Routes
 
-**Public routes:**
+**Public (no auth):**
 - `GET /api/common`
-- `GET /health`, `/health/readiness`, `/health/liveness`, `/health/detailed`
-- `GET /metrics` (if `observability.metrics.exposure` is `public`)
+- `GET /health`, `/health/live`, `/health/ready`, `/health/started`
+- `/health/liveness`, `/health/readiness` — aliases when `app.observability.health.legacy-aliases=true`
+- `GET /health/detailed` — when `app.observability.health.expose-detailed=true`
+- `GET /openapi.yaml`, `GET /openapi.json`, `GET /docs` (Swagger UI)
+- `GET /metrics` — only when `app.observability.metrics.exposure=open`
 
-**Protected routes:**
-- `GET /api/users`, `GET /api/users/:id`, `POST /api/users`, `PUT /api/users/:id`, `DELETE /api/users/:id`
-- `GET /api/products`, `GET /api/products/:productId`, `POST /api/products`, `PUT /api/products/:productId/stock`
+**Protected (require `Authorization: Bearer <token>`):**
+- `GET|POST|PUT|DELETE /api/users`, `/api/users/:id`
+- `GET|POST /api/products`, `/api/products/:productId`, `/api/products/:productId/stock`
 - `GET /api/products/analytics/report`, `POST /api/products/batch/:operation`
+- `GET /metrics` — default (`exposure=protected`)
 
-## EventBus Addresses
+**Health model:** `GET /health` (overall) = `ready + started`; liveness is excluded from the combined check.
 
-- `app.worker.analytics-report` - Analytics report generation (configured via `app.analytics.event-address`)
-- `app.worker.batch-operation` - Batch operations processing
-- `app.health.check` - Health check consumer
-- `app.worker.operation` - Legacy operation consumer
+## Observability Stack
 
-## Constants & Status Codes
+- **Metrics:** Micrometer + Prometheus. `MetricsFacade` interface — `MicrometerMetricsFacade` or `NoopMetricsFacade`. Scrape at `/metrics`.
+- **Tracing:** OpenTelemetry SDK, W3C trace context. `TracingService` creates HTTP server spans and EventBus consumer spans. `X-Trace-ID` emitted in HTTP responses. Exporter: `logging` (default) or `otlp` via `app.observability.tracing.otlp-endpoint`.
+- **Health:** `DefaultProbeOrchestrator` + `DefaultHealthCheckRegistry`. Three built-in checks: `ProcessLivenessCheck`, `EventBusReadinessCheck`, `StartupCheck`.
 
-Use `AppConstants.Status.*` for HTTP status codes and `AppConstants.Messages.*` for error messages. Never hardcode status codes in exceptions. All timing/delay values must come from `ApplicationConfig`.
+## Configuration
+
+Config interface: `ApplicationConfig` (`@ConfigMapping(prefix = "app")`). Source: `src/main/resources/application.yml`. Override with env vars (`APP_SERVER_PORT`, `APP_SECURITY_JWT_SECRET`, etc.).
+
+Key non-obvious defaults:
+- `app.security.jwt-secret=your-secret-key` — **override before any deployment**
+- `app.observability.metrics.exposure=protected` — metrics require Bearer token by default
+- `app.observability.tracing.exporter=logging` — traces go to stdout, not OTLP
+- `app.server.cors.allowed-origins=*` — tighten for production
+
+OpenAPI source contract: `src/main/resources/META-INF/openapi.yaml`. Generated artifacts are placed under `build/generated/openapi/` and copied into `openapi/` in the final JAR via `processResources`.
+
+## Constants & Error Handling
+
+- HTTP status codes → `HttpStatusCodes.*`
+- Error messages → `MessageConstants.*`
+- Context keys → `ContextKeys.*`
+- Paths → `PathConstants.*`
+- EventBus addresses → `EventBusConstants.*`
+- **Never wildcard-import** `com.github.kaivu.vertxweb.constants.*` — use explicit per-class imports
+- Throw `ServiceException(message, HttpStatusCodes.*)` to return structured JSON errors; `ErrorHandler` converts it automatically
+
+## Stub Data (Replace for Production)
+
+| Component | Current state |
+|-----------|--------------|
+| `UserService` | Switch-case for users 1–3; simulated delays |
+| `ProductRepositoryImpl` | In-memory Map with 3 products |
+| `AuthHandler` | Bearer token presence check only (DEMO mode) |
+
+Remaining work before production: real JWT verification in `AuthHandler`, real DB-backed repositories, CORS policy tightening, test coverage expansion to 80%+ project-wide.

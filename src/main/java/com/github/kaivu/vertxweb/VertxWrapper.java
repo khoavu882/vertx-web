@@ -1,6 +1,6 @@
 package com.github.kaivu.vertxweb;
 
-import com.github.kaivu.vertxweb.constants.*;
+import com.github.kaivu.vertxweb.constants.HttpStatusCodes;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import io.smallrye.mutiny.Uni;
 import io.vertx.core.Context;

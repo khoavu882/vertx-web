@@ -5,6 +5,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
+import org.slf4j.Logger;
 import org.slf4j.MDC;
 
 /**
@@ -162,6 +163,19 @@ public class CorrelationContext {
         childContext.put("parentSpanId", context.get(SPAN_ID));
         childContext.put("operation", operation);
         return new CorrelationContext(childContext);
+    }
+
+    /**
+     * Logs a structured event with this correlation context in MDC.
+     * Safe to call from any thread; clears MDC after logging.
+     */
+    public void logEvent(Logger log, String event, Object... args) {
+        setupLoggingContext();
+        try {
+            log.debug("Event: {} | Context: {} | Data: {}", event, this, args);
+        } finally {
+            clearLoggingContext();
+        }
     }
 
     /**

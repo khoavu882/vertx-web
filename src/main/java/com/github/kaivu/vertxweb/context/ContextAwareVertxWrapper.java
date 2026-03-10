@@ -1,7 +1,8 @@
 package com.github.kaivu.vertxweb.context;
 
 import com.github.kaivu.vertxweb.VertxWrapper;
-import com.github.kaivu.vertxweb.constants.*;
+import com.github.kaivu.vertxweb.constants.ContextKeys;
+import com.github.kaivu.vertxweb.constants.HttpConstants;
 import com.github.kaivu.vertxweb.observability.tracing.TracingService;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import io.smallrye.mutiny.Uni;
@@ -167,7 +168,7 @@ public class ContextAwareVertxWrapper extends VertxWrapper {
     public void logEvent(String event, Object... args) {
         correlationContext.setupLoggingContext();
         try {
-            log.info("Event: {} | Context: {} | Data: {}", event, correlationContext, args);
+            log.debug("Event: {} | Context: {} | Data: {}", event, correlationContext, args);
         } finally {
             correlationContext.clearLoggingContext();
         }

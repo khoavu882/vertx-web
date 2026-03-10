@@ -7,7 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
 import com.github.kaivu.vertxweb.config.ConfigProvider;
-import com.github.kaivu.vertxweb.constants.*;
+import com.github.kaivu.vertxweb.constants.HttpStatusCodes;
+import com.github.kaivu.vertxweb.constants.JsonKeys;
 import com.github.kaivu.vertxweb.observability.metrics.NoopMetricsFacade;
 import com.github.kaivu.vertxweb.patterns.CircuitBreakerRegistry;
 import com.github.kaivu.vertxweb.repositories.ProductRepository;
@@ -175,7 +176,7 @@ class ProductServiceTest {
             CircuitBreakerRegistry circuitBreakerRegistry =
                     new CircuitBreakerRegistry(vertx, appConfig, new NoopMetricsFacade());
             ProductService productService =
-                    new ProductService(new InMemoryProductRepository(), vertx, appConfig, circuitBreakerRegistry);
+                    new ProductService(new InMemoryProductRepository(), appConfig, circuitBreakerRegistry);
             return new TestFixture(vertx, productService, originals, overrides.keySet());
         }
 

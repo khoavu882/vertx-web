@@ -6,7 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
 import com.github.kaivu.vertxweb.config.ConfigProvider;
-import com.github.kaivu.vertxweb.constants.*;
+import com.github.kaivu.vertxweb.constants.HttpStatusCodes;
+import com.github.kaivu.vertxweb.constants.JsonKeys;
 import com.github.kaivu.vertxweb.observability.metrics.NoopMetricsFacade;
 import com.github.kaivu.vertxweb.patterns.CircuitBreakerRegistry;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
@@ -183,7 +184,7 @@ class UserServiceTest {
             ApplicationConfig appConfig = ConfigProvider.createConfig();
             CircuitBreakerRegistry circuitBreakerRegistry =
                     new CircuitBreakerRegistry(vertx, appConfig, new NoopMetricsFacade());
-            UserService userService = new UserService(vertx, appConfig, circuitBreakerRegistry);
+            UserService userService = new UserService(appConfig, circuitBreakerRegistry);
             return new TestFixture(vertx, userService, originals, overrides.keySet());
         }
 

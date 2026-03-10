@@ -21,6 +21,7 @@ import com.github.kaivu.vertxweb.repositories.ProductRepository;
 import com.github.kaivu.vertxweb.repositories.ProductRepositoryImpl;
 import com.github.kaivu.vertxweb.services.ProductService;
 import com.github.kaivu.vertxweb.services.UserService;
+import com.github.kaivu.vertxweb.web.AppRouter;
 import com.github.kaivu.vertxweb.web.RouterHelper;
 import com.github.kaivu.vertxweb.web.rests.CommonRouter;
 import com.github.kaivu.vertxweb.web.rests.HealthRouter;
@@ -32,25 +33,34 @@ import com.github.kaivu.vertxweb.web.routes.RouterConfig;
 import com.google.inject.AbstractModule;
 import com.google.inject.Provides;
 import com.google.inject.Singleton;
+import com.google.inject.multibindings.Multibinder;
 import io.vertx.core.Vertx;
 import io.vertx.ext.web.Router;
 
 /**
  * Google Guice module for dependency injection configuration.
  *
- * This module follows Guice best practices:
+ * <p>This module follows Guice best practices:
  * - Uses @Provides for complex object creation
  * - Leverages constructor injection where possible via @Inject annotations
  * - Properly scopes singletons for stateful components
  * - Separates configuration binding from service binding
+ *
+ * <p>Domain routers are registered via {@link Multibinder} so that {@link RouterConfig} receives
+ * a {@code Set<AppRouter>} and mounts them automatically. Adding a new domain requires only one
+ * {@code addBinding()} line here — RouterConfig itself never needs to change.
  */
 public class AppModule extends AbstractModule {
     private final Vertx vertx;
     private final ApplicationConfig applicationConfig;
 
-    public AppModule(Vertx vertx) {
+    /**
+     * Accepts both Vertx and a pre-loaded ApplicationConfig.
+     * The config is parsed once in StartupApp and passed here — no re-parsing per verticle.
+     */
+    public AppModule(Vertx vertx, ApplicationConfig applicationConfig) {
         this.vertx = vertx;
-        this.applicationConfig = ConfigProvider.createConfig();
+        this.applicationConfig = applicationConfig;
     }
 
     @Override
@@ -62,7 +72,7 @@ public class AppModule extends AbstractModule {
         // Bind repositories
         bind(ProductRepository.class).to(ProductRepositoryImpl.class).in(Singleton.class);
 
-        // Bind services - these have @Inject constructors, so Guice handles creation
+        // Bind services
         bind(UserService.class).in(Singleton.class);
         bind(ProductService.class).in(Singleton.class);
 
@@ -86,13 +96,18 @@ public class AppModule extends AbstractModule {
         bind(HealthCheckConsumer.class).in(Singleton.class);
         bind(LegacyOperationConsumer.class).in(Singleton.class);
 
-        // Bind routers - these also have @Inject constructors
+        // Bind infrastructure routers individually (special mounting rules)
         bind(CommonRouter.class).in(Singleton.class);
         bind(HealthRouter.class).in(Singleton.class);
         bind(MetricsRouter.class).in(Singleton.class);
         bind(OpenApiRouter.class).in(Singleton.class);
-        bind(UserRouter.class).in(Singleton.class);
-        bind(ProductRouter.class).in(Singleton.class);
+
+        // Register domain routers via Multibinder.
+        // RouterConfig receives Set<AppRouter> and mounts each automatically.
+        // To add a new domain: add one line here — nothing else changes.
+        Multibinder<AppRouter> domainRouters = Multibinder.newSetBinder(binder(), AppRouter.class);
+        domainRouters.addBinding().to(UserRouter.class).in(Singleton.class);
+        domainRouters.addBinding().to(ProductRouter.class).in(Singleton.class);
 
         // Bind router configuration
         bind(RouterConfig.class).in(Singleton.class);

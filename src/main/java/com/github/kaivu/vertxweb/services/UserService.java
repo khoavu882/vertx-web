@@ -1,17 +1,15 @@
 package com.github.kaivu.vertxweb.services;
 
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
-import com.github.kaivu.vertxweb.constants.*;
-import com.github.kaivu.vertxweb.context.ContextAwareVertxWrapper;
+import com.github.kaivu.vertxweb.constants.HttpStatusCodes;
+import com.github.kaivu.vertxweb.context.CorrelationContext;
 import com.github.kaivu.vertxweb.patterns.CircuitBreakerRegistry;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import io.smallrye.mutiny.Uni;
-import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
-import io.vertx.ext.web.RoutingContext;
 import java.time.Duration;
 import java.util.concurrent.ThreadLocalRandom;
 import org.slf4j.Logger;
@@ -21,18 +19,16 @@ import org.slf4j.LoggerFactory;
  * Created by Khoa Vu.
  * Mail: kai.vu.dev@gmail.com
  * Date: 9/12/24
- * Time: 10:25 AM
+ * Time: 10:25 AM
  */
 @Singleton
 public class UserService {
     private static final Logger log = LoggerFactory.getLogger(UserService.class);
-    private final Vertx vertx;
     private final ApplicationConfig appConfig;
     private final CircuitBreakerRegistry circuitBreakerRegistry;
 
     @Inject
-    public UserService(Vertx vertx, ApplicationConfig appConfig, CircuitBreakerRegistry circuitBreakerRegistry) {
-        this.vertx = vertx;
+    public UserService(ApplicationConfig appConfig, CircuitBreakerRegistry circuitBreakerRegistry) {
         this.appConfig = appConfig;
         this.circuitBreakerRegistry = circuitBreakerRegistry;
     }
@@ -41,24 +37,22 @@ public class UserService {
         return getAllUsersWithContext(null);
     }
 
-    public Uni<JsonObject> getAllUsersWithContext(RoutingContext ctx) {
-        ContextAwareVertxWrapper wrapper =
-                ctx != null ? (ContextAwareVertxWrapper) ctx.get(ContextKeys.ROUTING_CONTEXT_WRAPPER) : null;
-
-        if (wrapper != null) {
-            wrapper.logEvent("service_operation_start", "operation", "getAllUsers");
+    public Uni<JsonObject> getAllUsersWithContext(CorrelationContext correlation) {
+        if (correlation != null) {
+            correlation.logEvent(log, "service_start", "operation", "getAllUsers");
         }
 
         log.info("Fetching all users...");
 
-        Uni<JsonObject> result =
-                circuitBreakerRegistry.getDatabaseCircuitBreaker().execute(() -> performGetAllUsers());
-
-        if (wrapper != null) {
-            wrapper.logEvent("service_operation_completed", "operation", "getAllUsers");
-        }
-
-        return result;
+        return circuitBreakerRegistry
+                .getDatabaseCircuitBreaker()
+                .execute(() -> performGetAllUsers())
+                .onItem()
+                .invoke(result -> {
+                    if (correlation != null) {
+                        correlation.logEvent(log, "service_completed", "operation", "getAllUsers");
+                    }
+                });
     }
 
     private Uni<JsonObject> performGetAllUsers() {
@@ -101,29 +95,27 @@ public class UserService {
         return getUserByIdWithContext(userId, null);
     }
 
-    public Uni<JsonObject> getUserByIdWithContext(String userId, RoutingContext ctx) {
+    public Uni<JsonObject> getUserByIdWithContext(String userId, CorrelationContext correlation) {
         if (userId == null || userId.isBlank()) {
             return Uni.createFrom()
                     .failure(new ServiceException("User ID must not be empty", HttpStatusCodes.BAD_REQUEST));
         }
 
-        ContextAwareVertxWrapper wrapper =
-                ctx != null ? (ContextAwareVertxWrapper) ctx.get(ContextKeys.ROUTING_CONTEXT_WRAPPER) : null;
-
-        if (wrapper != null) {
-            wrapper.logEvent("service_operation_start", "operation", "getUserById", "userId", userId);
+        if (correlation != null) {
+            correlation.logEvent(log, "service_start", "operation", "getUserById", "userId", userId);
         }
 
         log.info("Fetching user by ID: {}", userId);
 
-        Uni<JsonObject> result =
-                circuitBreakerRegistry.getDatabaseCircuitBreaker().execute(() -> performGetUserById(userId));
-
-        if (wrapper != null) {
-            wrapper.logEvent("service_operation_completed", "operation", "getUserById", "userId", userId);
-        }
-
-        return result;
+        return circuitBreakerRegistry
+                .getDatabaseCircuitBreaker()
+                .execute(() -> performGetUserById(userId))
+                .onItem()
+                .invoke(result -> {
+                    if (correlation != null) {
+                        correlation.logEvent(log, "service_completed", "operation", "getUserById", "userId", userId);
+                    }
+                });
     }
 
     private Uni<JsonObject> performGetUserById(String userId) {
@@ -173,7 +165,7 @@ public class UserService {
         return createUserWithContext(user, null);
     }
 
-    public Uni<JsonObject> createUserWithContext(JsonObject user, RoutingContext ctx) {
+    public Uni<JsonObject> createUserWithContext(JsonObject user, CorrelationContext correlation) {
         if (user == null || user.isEmpty()) {
             return Uni.createFrom()
                     .failure(new ServiceException("User data must not be empty", HttpStatusCodes.BAD_REQUEST));
@@ -190,23 +182,21 @@ public class UserService {
                     .failure(new ServiceException("User email is required", HttpStatusCodes.BAD_REQUEST));
         }
 
-        ContextAwareVertxWrapper wrapper =
-                ctx != null ? (ContextAwareVertxWrapper) ctx.get(ContextKeys.ROUTING_CONTEXT_WRAPPER) : null;
-
-        if (wrapper != null) {
-            wrapper.logEvent("service_operation_start", "operation", "createUser", "userName", name);
+        if (correlation != null) {
+            correlation.logEvent(log, "service_start", "operation", "createUser", "userName", name);
         }
 
         log.info("Creating new user: {}", name);
 
-        Uni<JsonObject> result =
-                circuitBreakerRegistry.getDatabaseCircuitBreaker().execute(() -> performCreateUser(user));
-
-        if (wrapper != null) {
-            wrapper.logEvent("service_operation_completed", "operation", "createUser", "userName", name);
-        }
-
-        return result;
+        return circuitBreakerRegistry
+                .getDatabaseCircuitBreaker()
+                .execute(() -> performCreateUser(user))
+                .onItem()
+                .invoke(result -> {
+                    if (correlation != null) {
+                        correlation.logEvent(log, "service_completed", "operation", "createUser", "userName", name);
+                    }
+                });
     }
 
     private Uni<JsonObject> performCreateUser(JsonObject user) {
@@ -242,7 +232,7 @@ public class UserService {
         return updateUserWithContext(userId, user, null);
     }
 
-    public Uni<JsonObject> updateUserWithContext(String userId, JsonObject user, RoutingContext ctx) {
+    public Uni<JsonObject> updateUserWithContext(String userId, JsonObject user, CorrelationContext correlation) {
         if (userId == null || userId.isBlank()) {
             return Uni.createFrom()
                     .failure(new ServiceException("User ID must not be empty", HttpStatusCodes.BAD_REQUEST));
@@ -252,95 +242,90 @@ public class UserService {
                     .failure(new ServiceException("User data must not be empty", HttpStatusCodes.BAD_REQUEST));
         }
 
-        ContextAwareVertxWrapper wrapper =
-                ctx != null ? (ContextAwareVertxWrapper) ctx.get(ContextKeys.ROUTING_CONTEXT_WRAPPER) : null;
-
-        if (wrapper != null) {
-            wrapper.logEvent("service_operation_start", "operation", "updateUser", "userId", userId);
+        if (correlation != null) {
+            correlation.logEvent(log, "service_start", "operation", "updateUser", "userId", userId);
         }
 
         log.info("Updating user: {}", userId);
 
-        return circuitBreakerRegistry.getDatabaseCircuitBreaker().execute(() -> performGetUserById(userId)
+        return circuitBreakerRegistry
+                .getDatabaseCircuitBreaker()
+                .execute(() -> performGetUserById(userId)
+                        .onItem()
+                        .delayIt()
+                        .by(Duration.ofMillis(appConfig.service().updateBaseDelayMs()
+                                + ThreadLocalRandom.current()
+                                        .nextInt(appConfig.service().updateMaxVarianceMs())))
+                        .onItem()
+                        .transform(existingUser -> {
+                            JsonObject updatedUser = existingUser.copy();
+                            if (user.containsKey("name")) updatedUser.put("name", user.getString("name"));
+                            if (user.containsKey("email")) updatedUser.put("email", user.getString("email"));
+                            if (user.containsKey("active")) updatedUser.put("active", user.getBoolean("active"));
+                            updatedUser.put("updatedAt", java.time.Instant.now().toString());
+                            return updatedUser;
+                        })
+                        .onFailure()
+                        .transform(throwable -> {
+                            if (throwable instanceof ServiceException) {
+                                return throwable;
+                            }
+                            log.error("Error updating user: {}", userId, throwable);
+                            return new ServiceException("Failed to update user", HttpStatusCodes.INTERNAL_SERVER_ERROR);
+                        }))
                 .onItem()
-                .delayIt()
-                .by(Duration.ofMillis(appConfig.service().updateBaseDelayMs()
-                        + ThreadLocalRandom.current()
-                                .nextInt(appConfig.service().updateMaxVarianceMs())))
-                .onItem()
-                .transform(existingUser -> {
-                    // Merge updates with existing data
-                    JsonObject updatedUser = existingUser.copy();
-
-                    if (user.containsKey("name")) {
-                        updatedUser.put("name", user.getString("name"));
+                .invoke(result -> {
+                    if (correlation != null) {
+                        correlation.logEvent(log, "service_completed", "operation", "updateUser", "userId", userId);
                     }
-                    if (user.containsKey("email")) {
-                        updatedUser.put("email", user.getString("email"));
-                    }
-                    if (user.containsKey("active")) {
-                        updatedUser.put("active", user.getBoolean("active"));
-                    }
-
-                    updatedUser.put("updatedAt", java.time.Instant.now().toString());
-                    return updatedUser;
-                })
-                .onFailure()
-                .transform(throwable -> {
-                    if (throwable instanceof ServiceException) {
-                        return throwable;
-                    }
-                    log.error("Error updating user: {}", userId, throwable);
-                    return new ServiceException("Failed to update user", HttpStatusCodes.INTERNAL_SERVER_ERROR);
-                }));
+                });
     }
 
     public Uni<JsonObject> deleteUser(String userId) {
         return deleteUserWithContext(userId, null);
     }
 
-    public Uni<JsonObject> deleteUserWithContext(String userId, RoutingContext ctx) {
+    public Uni<JsonObject> deleteUserWithContext(String userId, CorrelationContext correlation) {
         if (userId == null || userId.isBlank()) {
             return Uni.createFrom()
                     .failure(new ServiceException("User ID must not be empty", HttpStatusCodes.BAD_REQUEST));
         }
 
-        ContextAwareVertxWrapper wrapper =
-                ctx != null ? (ContextAwareVertxWrapper) ctx.get(ContextKeys.ROUTING_CONTEXT_WRAPPER) : null;
-
-        if (wrapper != null) {
-            wrapper.logEvent("service_operation_start", "operation", "deleteUser", "userId", userId);
+        if (correlation != null) {
+            correlation.logEvent(log, "service_start", "operation", "deleteUser", "userId", userId);
         }
 
         log.info("Deleting user: {}", userId);
 
-        return circuitBreakerRegistry.getDatabaseCircuitBreaker().execute(() -> performGetUserById(userId)
+        return circuitBreakerRegistry
+                .getDatabaseCircuitBreaker()
+                .execute(() -> performGetUserById(userId)
+                        .onItem()
+                        .delayIt()
+                        .by(Duration.ofMillis(appConfig.service().deleteBaseDelayMs()
+                                + ThreadLocalRandom.current()
+                                        .nextInt(appConfig.service().deleteMaxVarianceMs())))
+                        .onItem()
+                        .transform(existingUser -> {
+                            JsonObject result = new JsonObject()
+                                    .put("id", userId)
+                                    .put("message", "User deleted successfully")
+                                    .put("deletedAt", java.time.Instant.now().toString());
+                            return result;
+                        })
+                        .onFailure()
+                        .transform(throwable -> {
+                            if (throwable instanceof ServiceException) {
+                                return throwable;
+                            }
+                            log.error("Error deleting user: {}", userId, throwable);
+                            return new ServiceException("Failed to delete user", HttpStatusCodes.INTERNAL_SERVER_ERROR);
+                        }))
                 .onItem()
-                .delayIt()
-                .by(Duration.ofMillis(appConfig.service().deleteBaseDelayMs()
-                        + ThreadLocalRandom.current()
-                                .nextInt(appConfig.service().deleteMaxVarianceMs())))
-                .onItem()
-                .transform(existingUser -> {
-                    // Simulate soft delete
-                    JsonObject result = new JsonObject()
-                            .put("id", userId)
-                            .put("message", "User deleted successfully")
-                            .put("deletedAt", java.time.Instant.now().toString());
-
-                    if (wrapper != null) {
-                        wrapper.logEvent("service_operation_completed", "operation", "deleteUser", "userId", userId);
+                .invoke(result -> {
+                    if (correlation != null) {
+                        correlation.logEvent(log, "service_completed", "operation", "deleteUser", "userId", userId);
                     }
-
-                    return result;
-                })
-                .onFailure()
-                .transform(throwable -> {
-                    if (throwable instanceof ServiceException) {
-                        return throwable;
-                    }
-                    log.error("Error deleting user: {}", userId, throwable);
-                    return new ServiceException("Failed to delete user", HttpStatusCodes.INTERNAL_SERVER_ERROR);
-                }));
+                });
     }
 }

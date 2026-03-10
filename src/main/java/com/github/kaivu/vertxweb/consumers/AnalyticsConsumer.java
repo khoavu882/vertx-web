@@ -1,7 +1,10 @@
 package com.github.kaivu.vertxweb.consumers;
 
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
-import com.github.kaivu.vertxweb.constants.*;
+import com.github.kaivu.vertxweb.constants.HttpStatusCodes;
+import com.github.kaivu.vertxweb.constants.JsonKeys;
+import com.github.kaivu.vertxweb.constants.OutcomeConstants;
+import com.github.kaivu.vertxweb.constants.ProductConstants;
 import com.github.kaivu.vertxweb.context.ContextAwareVertxWrapper;
 import com.github.kaivu.vertxweb.context.CorrelationContext;
 import com.github.kaivu.vertxweb.observability.tracing.TracingService;
@@ -10,11 +13,12 @@ import com.github.kaivu.vertxweb.patterns.CircuitBreakerRegistry;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import com.google.inject.Inject;
 import io.opentelemetry.api.trace.Span;
+import io.smallrye.mutiny.Uni;
 import io.vertx.core.Vertx;
 import io.vertx.core.eventbus.EventBus;
 import io.vertx.core.eventbus.Message;
+import io.vertx.core.eventbus.MessageConsumer;
 import io.vertx.core.json.JsonObject;
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Random;
@@ -48,8 +52,8 @@ public class AnalyticsConsumer implements EventBusConsumer {
     }
 
     @Override
-    public void registerConsumer(EventBus eventBus) {
-        eventBus.<JsonObject>consumer(getEventAddress(), this::handle);
+    public MessageConsumer<JsonObject> registerConsumer(EventBus eventBus) {
+        return eventBus.<JsonObject>consumer(getEventAddress(), this::handle);
     }
 
     public void handle(Message<JsonObject> message) {
@@ -75,19 +79,20 @@ public class AnalyticsConsumer implements EventBusConsumer {
             // Validate request data with context
             validateAnalyticsRequest(requestData, context);
 
-            // Use circuit breaker with wrapper's executeBlocking for resilient processing
-            circuitBreakerRegistry
+            // Use circuit breaker for resilient processing.
+            // This handler already runs on the WorkerVerticle thread pool — direct blocking call
+            // is correct here; no extra executeBlocking dispatch needed.
+            Uni<JsonObject> analyticsUni = circuitBreakerRegistry
                     .getAnalyticsCircuitBreaker()
-                    .execute(() -> finalWrapper
-                            .executeBlockingUni(
-                                    () -> generateAnalyticsReport(finalContext),
-                                    error -> new ServiceException(
+                    .execute(() -> Uni.createFrom()
+                            .<JsonObject>item(() -> generateAnalyticsReport(finalContext))
+                            .onFailure()
+                            .transform(e -> e instanceof ServiceException
+                                    ? e
+                                    : new ServiceException(
                                             "Analytics report generation failed",
-                                            HttpStatusCodes.INTERNAL_SERVER_ERROR))
-                            .ifNoItem()
-                            .after(Duration.ofMillis(appConfig.analytics().executionTimeoutMs()))
-                            .failWith(() -> new ServiceException(
-                                    "Analytics report generation timed out", HttpStatusCodes.SERVICE_UNAVAILABLE)))
+                                            HttpStatusCodes.INTERNAL_SERVER_ERROR)));
+            analyticsUni
                     .subscribe()
                     .with(
                             report -> {

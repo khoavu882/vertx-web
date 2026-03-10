@@ -1,8 +1,13 @@
 package com.github.kaivu.vertxweb.web.rests;
 
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
-import com.github.kaivu.vertxweb.constants.*;
+import com.github.kaivu.vertxweb.constants.ContextKeys;
+import com.github.kaivu.vertxweb.constants.HttpStatusCodes;
+import com.github.kaivu.vertxweb.constants.PathConstants;
+import com.github.kaivu.vertxweb.context.ContextAwareVertxWrapper;
+import com.github.kaivu.vertxweb.context.CorrelationContext;
 import com.github.kaivu.vertxweb.services.UserService;
+import com.github.kaivu.vertxweb.web.AppRouter;
 import com.github.kaivu.vertxweb.web.RouterHelper;
 import com.github.kaivu.vertxweb.web.validation.ValidationResult;
 import com.github.kaivu.vertxweb.web.validation.Validator;
@@ -17,28 +22,33 @@ import io.vertx.ext.web.handler.BodyHandler;
 import lombok.Getter;
 
 @Singleton
-public class UserRouter {
+public class UserRouter implements AppRouter {
 
     @Getter
     private final Router router;
 
     private final UserService userService;
     private final RouterHelper routerHelper;
+    private final ApplicationConfig appConfig;
 
     @Inject
     public UserRouter(Vertx vertx, ApplicationConfig appConfig, UserService userService, RouterHelper routerHelper) {
         this.router = Router.router(vertx);
+        this.appConfig = appConfig;
         this.userService = userService;
         this.routerHelper = routerHelper;
         setupRoutes(appConfig);
     }
 
+    @Override
+    public String getMountPath() {
+        return appConfig.server().apiPrefix() + PathConstants.USERS_ROOT + PathConstants.ANY_ROOT;
+    }
+
     private void setupRoutes(ApplicationConfig appConfig) {
-        // Add BodyHandler to parse request bodies
         router.route()
                 .handler(BodyHandler.create().setBodyLimit(appConfig.server().maxBodySizeBytes()));
 
-        // API routes using clean async pattern
         router.get().handler(ctx -> RouterHelper.handleAsync(ctx, this::getAllUsers));
         router.get("/:id").handler(ctx -> RouterHelper.handleAsync(ctx, this::getUserById));
         router.post().handler(ctx -> RouterHelper.handleAsync(ctx, this::createUser));
@@ -48,41 +58,28 @@ public class UserRouter {
 
     private Uni<Void> getAllUsers(RoutingContext ctx) {
         return userService
-                .getAllUsersWithContext(ctx)
+                .getAllUsersWithContext(extractCorrelation(ctx))
                 .onItem()
                 .invoke(users -> RouterHelper.sendJsonResponse(ctx, HttpStatusCodes.OK, users))
                 .replaceWithVoid();
     }
 
-    /**
-     * Gets user by ID with improved error handling using RouterHelper.
-     * This method demonstrates clean path parameter validation and response handling.
-     */
     private Uni<Void> getUserById(RoutingContext ctx) {
-        // Validate path parameter using RouterHelper
         String userId = routerHelper.validatePathParam(ctx, "id");
-
         return userService
-                .getUserByIdWithContext(userId, ctx)
+                .getUserByIdWithContext(userId, extractCorrelation(ctx))
                 .onItem()
                 .invoke(user -> RouterHelper.sendJsonResponse(ctx, HttpStatusCodes.OK, user))
                 .replaceWithVoid();
     }
 
-    /**
-     * Creates a new user with improved error handling using RouterHelper.
-     * This method demonstrates the clean, reactive approach with RouterHelper utility.
-     */
     private Uni<Void> createUser(RoutingContext ctx) {
-        // Validate request body using RouterHelper
         JsonObject body = routerHelper.validateRequestBody(ctx);
-
-        // Apply validation rules using RouterHelper
         ValidationResult validation = Validator.Users.CREATE.validate(body);
         routerHelper.handleValidationErrors(validation);
 
         return userService
-                .createUserWithContext(body, ctx)
+                .createUserWithContext(body, extractCorrelation(ctx))
                 .onItem()
                 .invoke(newUser -> {
                     JsonObject response = new JsonObject()
@@ -94,18 +91,13 @@ public class UserRouter {
     }
 
     private Uni<Void> updateUser(RoutingContext ctx) {
-        // Validate path parameter using RouterHelper
         String userId = routerHelper.validatePathParam(ctx, "id");
-
-        // Validate request body using RouterHelper
         JsonObject body = routerHelper.validateRequestBody(ctx);
-
-        // Apply validation rules using RouterHelper
         ValidationResult validation = Validator.Users.UPDATE.validate(body);
         routerHelper.handleValidationErrors(validation);
 
         return userService
-                .updateUserWithContext(userId, body, ctx)
+                .updateUserWithContext(userId, body, extractCorrelation(ctx))
                 .onItem()
                 .invoke(updatedUser -> {
                     JsonObject response = new JsonObject()
@@ -117,13 +109,17 @@ public class UserRouter {
     }
 
     private Uni<Void> deleteUser(RoutingContext ctx) {
-        // Validate path parameter using RouterHelper
         String userId = routerHelper.validatePathParam(ctx, "id");
-
         return userService
-                .deleteUserWithContext(userId, ctx)
+                .deleteUserWithContext(userId, extractCorrelation(ctx))
                 .onItem()
                 .invoke(result -> RouterHelper.sendJsonResponse(ctx, HttpStatusCodes.OK, result))
                 .replaceWithVoid();
+    }
+
+    /** Extracts the CorrelationContext seeded by RouterHelper.handleAsync. */
+    private static CorrelationContext extractCorrelation(RoutingContext ctx) {
+        ContextAwareVertxWrapper wrapper = ctx.get(ContextKeys.ROUTING_CONTEXT_WRAPPER);
+        return wrapper != null ? wrapper.getCorrelationContext() : null;
     }
 }

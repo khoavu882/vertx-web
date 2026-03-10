@@ -112,10 +112,11 @@ public class CircuitBreaker {
                 reset();
                 log.info("Circuit breaker '{}' transitioning to CLOSED after {} successes", name, currentSuccessCount);
             }
-        } else if (currentState == State.CLOSED) {
-            // Reset failure count on success in CLOSED state
-            failureCount.set(0);
         }
+        // In CLOSED state, do NOT reset the failure count on individual successes.
+        // Failures accumulate until the threshold is reached; count only resets via
+        // reset() when transitioning HALF_OPEN → CLOSED. This prevents the window from
+        // being silently cleared by intermittent successes between bursts of failures.
 
         log.debug("Circuit breaker '{}' operation succeeded in {}ms", name, duration.toMillis());
     }

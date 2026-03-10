@@ -1,18 +1,27 @@
 package com.github.kaivu.vertxweb.web.rests;
 
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
-import com.github.kaivu.vertxweb.constants.*;
+import com.github.kaivu.vertxweb.constants.ContextKeys;
+import com.github.kaivu.vertxweb.constants.HttpStatusCodes;
+import com.github.kaivu.vertxweb.constants.JsonKeys;
+import com.github.kaivu.vertxweb.constants.OutcomeConstants;
+import com.github.kaivu.vertxweb.constants.PathConstants;
+import com.github.kaivu.vertxweb.constants.ProductConstants;
 import com.github.kaivu.vertxweb.context.ContextAwareVertxWrapper;
+import com.github.kaivu.vertxweb.context.CorrelationContext;
 import com.github.kaivu.vertxweb.observability.metrics.MetricsFacade;
 import com.github.kaivu.vertxweb.services.ProductService;
+import com.github.kaivu.vertxweb.web.AppRouter;
 import com.github.kaivu.vertxweb.web.RouterHelper;
+import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import com.github.kaivu.vertxweb.web.validation.ValidationResult;
 import com.github.kaivu.vertxweb.web.validation.Validator;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import io.smallrye.mutiny.Uni;
 import io.vertx.core.Vertx;
-import io.vertx.core.http.HttpHeaders;
+import io.vertx.core.eventbus.DeliveryOptions;
+import io.vertx.core.eventbus.ReplyException;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.Router;
 import io.vertx.ext.web.RoutingContext;
@@ -20,9 +29,7 @@ import io.vertx.ext.web.handler.BodyHandler;
 import lombok.Getter;
 
 @Singleton
-public class ProductRouter {
-    private static final String CONTENT_TYPE = HttpConstants.CONTENT_TYPE_JSON;
-    private static final int HTTP_OK = HttpStatusCodes.OK;
+public class ProductRouter implements AppRouter {
 
     @Getter
     private final Router router;
@@ -47,54 +54,54 @@ public class ProductRouter {
         setupRoutes(appConfig);
     }
 
+    @Override
+    public String getMountPath() {
+        return appConfig.server().apiPrefix() + PathConstants.PRODUCTS_ROOT + PathConstants.ANY_ROOT;
+    }
+
     private void setupRoutes(ApplicationConfig appConfig) {
-        // Add BodyHandler to parse request bodies
         router.route()
                 .handler(BodyHandler.create().setBodyLimit(appConfig.server().maxBodySizeBytes()));
 
-        // API routes using clean async pattern
         router.get().handler(ctx -> RouterHelper.handleAsync(ctx, this::getAllProducts));
         router.get(ProductConstants.ROUTE_BY_ID).handler(ctx -> RouterHelper.handleAsync(ctx, this::getProductById));
         router.post().handler(ctx -> RouterHelper.handleAsync(ctx, this::createProduct));
         router.put(ProductConstants.ROUTE_STOCK_BY_ID)
                 .handler(ctx -> RouterHelper.handleAsync(ctx, this::updateProductStock));
 
-        // Context-aware analytics and batch operations
-        router.get(ProductConstants.ROUTE_ANALYTICS_REPORT).handler(this::generateAnalyticsReport);
-        router.post(ProductConstants.ROUTE_BATCH_OPERATION).handler(this::processBatchOperation);
+        // Analytics and batch: now use handleAsync so errors route through ErrorHandler
+        router.get(ProductConstants.ROUTE_ANALYTICS_REPORT)
+                .handler(ctx -> RouterHelper.handleAsync(ctx, this::generateAnalyticsReport));
+        router.post(ProductConstants.ROUTE_BATCH_OPERATION)
+                .handler(ctx -> RouterHelper.handleAsync(ctx, this::processBatchOperation));
     }
 
     private Uni<Void> getAllProducts(RoutingContext ctx) {
         return productService
-                .getAllProductsWithContext(ctx)
+                .getAllProductsWithContext(extractCorrelation(ctx))
                 .onItem()
                 .invoke(products -> RouterHelper.sendJsonResponse(ctx, HttpStatusCodes.OK, products))
                 .replaceWithVoid();
     }
 
     private Uni<Void> getProductById(RoutingContext ctx) {
-        // Validate path parameter using RouterHelper
         String productId = routerHelper.validatePathParam(ctx, ProductConstants.PARAM_PRODUCT_ID);
-
         return productService
-                .getProductByIdWithContext(productId, ctx)
+                .getProductByIdWithContext(productId, extractCorrelation(ctx))
                 .onItem()
                 .invoke(product -> RouterHelper.sendJsonResponse(ctx, HttpStatusCodes.OK, product))
                 .replaceWithVoid();
     }
 
     private Uni<Void> createProduct(RoutingContext ctx) {
-        // Validate request body using RouterHelper
         JsonObject body = routerHelper.validateRequestBody(ctx);
-
-        // Apply validation rules using RouterHelper
         ValidationResult validation = Validator.Products.create(
                         appConfig.validation().maxNameLength())
                 .validate(body);
         routerHelper.handleValidationErrors(validation);
 
         return productService
-                .createProductWithContext(body, ctx)
+                .createProductWithContext(body, extractCorrelation(ctx))
                 .onItem()
                 .invoke(newProduct -> {
                     JsonObject response = new JsonObject()
@@ -106,20 +113,14 @@ public class ProductRouter {
     }
 
     private Uni<Void> updateProductStock(RoutingContext ctx) {
-        // Validate path parameter using RouterHelper
         String productId = routerHelper.validatePathParam(ctx, ProductConstants.PARAM_PRODUCT_ID);
-
-        // Validate request body using RouterHelper
         JsonObject body = routerHelper.validateRequestBody(ctx);
-
-        // Apply validation rules using RouterHelper
         ValidationResult validation = Validator.Products.STOCK_UPDATE.validate(body);
         routerHelper.handleValidationErrors(validation);
 
-        // Extract quantity and handle service response
         int newQuantity = body.getInteger(ProductConstants.KEY_QUANTITY);
         return productService
-                .updateProductStockWithContext(productId, newQuantity, ctx)
+                .updateProductStockWithContext(productId, newQuantity, extractCorrelation(ctx))
                 .onItem()
                 .invoke(updatedProduct -> {
                     JsonObject response = new JsonObject()
@@ -130,168 +131,106 @@ public class ProductRouter {
                 .replaceWithVoid();
     }
 
-    private void generateAnalyticsReport(RoutingContext ctx) {
-        // Create context-aware wrapper from HTTP request
-        ContextAwareVertxWrapper wrapper = ContextAwareVertxWrapper.fromHttpRequest(ctx.vertx(), ctx);
+    /**
+     * Sends an analytics report request over the EventBus and returns the result.
+     *
+     * <p>Uses the correlation context seeded by RouterHelper.handleAsync — no duplicate wrapper
+     * creation. EventBus reply timeout is bounded by {@code app.analytics.execution-timeout-ms}
+     * via DeliveryOptions so the request does not hang for the default 30 s.
+     */
+    private Uni<Void> generateAnalyticsReport(RoutingContext ctx) {
+        ContextAwareVertxWrapper wrapper = ctx.get(ContextKeys.ROUTING_CONTEXT_WRAPPER);
 
-        // Extract user context if available (from JWT, session, etc.)
-        String userId = ctx.user() != null ? ctx.user().principal().getString("sub") : null;
-        String tenantId = ctx.request().getHeader(HttpConstants.X_TENANT_ID);
-
-        // Enrich correlation context
-        wrapper.getCorrelationContext().withUserId(userId).withTenantId(tenantId);
-
-        wrapper.logEvent("analytics_request_received", "endpoint", ProductConstants.ROUTE_ANALYTICS_REPORT);
-
-        // Prepare request data
         JsonObject requestData = new JsonObject()
                 .put(ProductConstants.KEY_REPORT_TYPE, ProductConstants.VALUE_REPORT_TYPE_ANALYTICS)
                 .put(JsonKeys.TIMESTAMP, System.currentTimeMillis());
 
-        // Enrich with correlation context for EventBus
-        wrapper.enrichEventBusMessage(requestData);
+        if (wrapper != null) {
+            wrapper.enrichEventBusMessage(requestData);
+            wrapper.logEvent("analytics_request_received", "endpoint", ProductConstants.ROUTE_ANALYTICS_REPORT);
+        }
 
         String analyticsAddress = appConfig.analytics().eventAddress();
         long startedAt = System.currentTimeMillis();
-        ctx.vertx().eventBus().request(analyticsAddress, requestData, reply -> {
-            if (reply.succeeded()) {
-                metricsFacade.recordEventBusRequest(
-                        analyticsAddress, OutcomeConstants.SUCCESS, System.currentTimeMillis() - startedAt);
-                JsonObject report = new JsonObject(reply.result().body().toString());
 
-                wrapper.logEvent(
-                        "analytics_response_success",
-                        "duration_ms",
-                        wrapper.getCorrelationContext().getProcessingDurationMs(),
-                        "correlation_id",
-                        wrapper.getCorrelationContext().getCorrelationId());
+        DeliveryOptions opts =
+                new DeliveryOptions().setSendTimeout(appConfig.analytics().executionTimeoutMs());
 
-                sendJsonResponse(ctx, HTTP_OK, report);
-            } else {
-                metricsFacade.recordEventBusRequest(
-                        analyticsAddress, OutcomeConstants.ERROR, System.currentTimeMillis() - startedAt);
-                // Extract status code from ServiceException if available
-                int statusCode = HttpStatusCodes.INTERNAL_SERVER_ERROR; // default
-                String errorMessage = ProductConstants.MESSAGE_ANALYTICS_FAILED;
-
-                if (reply.cause() instanceof io.vertx.core.eventbus.ReplyException) {
-                    io.vertx.core.eventbus.ReplyException replyEx =
-                            (io.vertx.core.eventbus.ReplyException) reply.cause();
-                    statusCode = replyEx.failureCode();
-                    errorMessage = replyEx.getMessage();
-                }
-
-                wrapper.logEvent(
-                        "analytics_response_error",
-                        "error",
-                        errorMessage,
-                        "status_code",
-                        statusCode,
-                        "correlation_id",
-                        wrapper.getCorrelationContext().getCorrelationId());
-
-                JsonObject errorResponse = new JsonObject()
-                        .put(JsonKeys.ERROR, errorMessage)
-                        .put(JsonKeys.STATUS, OutcomeConstants.ERROR)
-                        .put(JsonKeys.STATUS_CODE, statusCode)
-                        .put(
-                                JsonKeys.CORRELATION_ID,
-                                wrapper.getCorrelationContext().getCorrelationId())
-                        .put(JsonKeys.TIMESTAMP, System.currentTimeMillis());
-
-                sendJsonResponse(ctx, statusCode, errorResponse);
-            }
-        });
+        return Uni.createFrom()
+                .<JsonObject>emitter(
+                        em -> ctx.vertx().eventBus().request(analyticsAddress, requestData, opts, reply -> {
+                            long elapsed = System.currentTimeMillis() - startedAt;
+                            if (reply.succeeded()) {
+                                metricsFacade.recordEventBusRequest(
+                                        analyticsAddress, OutcomeConstants.SUCCESS, elapsed);
+                                em.complete(new JsonObject(reply.result().body().toString()));
+                            } else {
+                                metricsFacade.recordEventBusRequest(analyticsAddress, OutcomeConstants.ERROR, elapsed);
+                                em.fail(mapReplyFailure(reply.cause(), ProductConstants.MESSAGE_ANALYTICS_FAILED));
+                            }
+                        }))
+                .onItem()
+                .invoke(report -> RouterHelper.sendJsonResponse(ctx, HttpStatusCodes.OK, report))
+                .replaceWithVoid();
     }
 
-    private void processBatchOperation(RoutingContext ctx) {
-        // Create context-aware wrapper from HTTP request
-        ContextAwareVertxWrapper wrapper = ContextAwareVertxWrapper.fromHttpRequest(ctx.vertx(), ctx);
+    /**
+     * Dispatches a batch operation request over the EventBus.
+     *
+     * <p>Same pattern as {@link #generateAnalyticsReport}: uses existing wrapper, bounded timeout.
+     */
+    private Uni<Void> processBatchOperation(RoutingContext ctx) {
+        ContextAwareVertxWrapper wrapper = ctx.get(ContextKeys.ROUTING_CONTEXT_WRAPPER);
         String operation = ctx.pathParam(ProductConstants.PARAM_OPERATION);
-
-        // Extract user context if available
-        String userId = ctx.user() != null ? ctx.user().principal().getString("sub") : null;
-        String tenantId = ctx.request().getHeader(HttpConstants.X_TENANT_ID);
-
-        // Enrich correlation context
-        wrapper.getCorrelationContext().withUserId(userId).withTenantId(tenantId);
-
-        wrapper.logEvent("batch_operation_request_received", JsonKeys.OPERATION, operation);
 
         JsonObject requestData =
                 new JsonObject().put(JsonKeys.OPERATION, operation).put(JsonKeys.TIMESTAMP, System.currentTimeMillis());
 
-        // Add confirmDelete for delete operations
         if (ProductConstants.VALUE_OPERATION_DELETE.equalsIgnoreCase(operation)) {
             String confirm = ctx.request().getParam(ProductConstants.QUERY_CONFIRM);
             requestData.put(ProductConstants.KEY_CONFIRM_DELETE, ProductConstants.VALUE_CONFIRM_TRUE.equals(confirm));
         }
 
-        // Enrich with correlation context for EventBus
-        wrapper.enrichEventBusMessage(requestData);
+        if (wrapper != null) {
+            wrapper.enrichEventBusMessage(requestData);
+            wrapper.logEvent("batch_operation_request_received", JsonKeys.OPERATION, operation);
+        }
 
-        String batchOperationAddress = appConfig.eventBus().batchOperationAddress();
+        String batchAddress = appConfig.eventBus().batchOperationAddress();
         long startedAt = System.currentTimeMillis();
-        ctx.vertx().eventBus().request(batchOperationAddress, requestData, reply -> {
-            if (reply.succeeded()) {
-                metricsFacade.recordEventBusRequest(
-                        batchOperationAddress, OutcomeConstants.SUCCESS, System.currentTimeMillis() - startedAt);
-                JsonObject result = new JsonObject(reply.result().body().toString());
 
-                wrapper.logEvent(
-                        "batch_operation_response_success",
-                        "operation",
-                        operation,
-                        "duration_ms",
-                        wrapper.getCorrelationContext().getProcessingDurationMs(),
-                        "correlation_id",
-                        wrapper.getCorrelationContext().getCorrelationId());
+        DeliveryOptions opts =
+                new DeliveryOptions().setSendTimeout(appConfig.eventBus().requestTimeoutMs());
 
-                sendJsonResponse(ctx, HTTP_OK, result);
-            } else {
-                metricsFacade.recordEventBusRequest(
-                        batchOperationAddress, OutcomeConstants.ERROR, System.currentTimeMillis() - startedAt);
-                // Extract status code from ServiceException
-                int statusCode = HttpStatusCodes.INTERNAL_SERVER_ERROR;
-                String errorMessage = ProductConstants.MESSAGE_BATCH_FAILED;
-
-                if (reply.cause() instanceof io.vertx.core.eventbus.ReplyException) {
-                    io.vertx.core.eventbus.ReplyException replyEx =
-                            (io.vertx.core.eventbus.ReplyException) reply.cause();
-                    statusCode = replyEx.failureCode();
-                    errorMessage = replyEx.getMessage();
-                }
-
-                wrapper.logEvent(
-                        "batch_operation_response_error",
-                        JsonKeys.OPERATION,
-                        operation,
-                        JsonKeys.ERROR,
-                        errorMessage,
-                        "status_code",
-                        statusCode,
-                        "correlation_id",
-                        wrapper.getCorrelationContext().getCorrelationId());
-
-                JsonObject errorResponse = new JsonObject()
-                        .put(JsonKeys.ERROR, errorMessage)
-                        .put(JsonKeys.STATUS, OutcomeConstants.ERROR)
-                        .put(JsonKeys.OPERATION, operation)
-                        .put(JsonKeys.STATUS_CODE, statusCode)
-                        .put(
-                                JsonKeys.CORRELATION_ID,
-                                wrapper.getCorrelationContext().getCorrelationId())
-                        .put(JsonKeys.TIMESTAMP, System.currentTimeMillis());
-
-                sendJsonResponse(ctx, statusCode, errorResponse);
-            }
-        });
+        return Uni.createFrom()
+                .<JsonObject>emitter(em -> ctx.vertx().eventBus().request(batchAddress, requestData, opts, reply -> {
+                    long elapsed = System.currentTimeMillis() - startedAt;
+                    if (reply.succeeded()) {
+                        metricsFacade.recordEventBusRequest(batchAddress, OutcomeConstants.SUCCESS, elapsed);
+                        em.complete(new JsonObject(reply.result().body().toString()));
+                    } else {
+                        metricsFacade.recordEventBusRequest(batchAddress, OutcomeConstants.ERROR, elapsed);
+                        em.fail(mapReplyFailure(reply.cause(), ProductConstants.MESSAGE_BATCH_FAILED));
+                    }
+                }))
+                .onItem()
+                .invoke(result -> RouterHelper.sendJsonResponse(ctx, HttpStatusCodes.OK, result))
+                .replaceWithVoid();
     }
 
-    private void sendJsonResponse(RoutingContext ctx, int statusCode, JsonObject response) {
-        ctx.response()
-                .setStatusCode(statusCode)
-                .putHeader(HttpHeaders.CONTENT_TYPE, CONTENT_TYPE)
-                .end(response.encode());
+    /** Maps an EventBus reply failure to a ServiceException, preserving the failure code. */
+    private static ServiceException mapReplyFailure(Throwable cause, String defaultMessage) {
+        if (cause instanceof ReplyException re) {
+            int code = re.failureCode() > 0 ? re.failureCode() : HttpStatusCodes.INTERNAL_SERVER_ERROR;
+            String msg = re.getMessage() != null ? re.getMessage() : defaultMessage;
+            return new ServiceException(msg, code);
+        }
+        return new ServiceException(defaultMessage, HttpStatusCodes.INTERNAL_SERVER_ERROR);
+    }
+
+    /** Extracts the CorrelationContext seeded by RouterHelper.handleAsync. */
+    private static CorrelationContext extractCorrelation(RoutingContext ctx) {
+        ContextAwareVertxWrapper wrapper = ctx.get(ContextKeys.ROUTING_CONTEXT_WRAPPER);
+        return wrapper != null ? wrapper.getCorrelationContext() : null;
     }
 }

@@ -4,6 +4,8 @@ import com.github.kaivu.vertxweb.config.ApplicationConfig;
 import com.google.inject.Inject;
 import io.vertx.core.eventbus.EventBus;
 import io.vertx.core.eventbus.Message;
+import io.vertx.core.eventbus.MessageConsumer;
+import io.vertx.core.json.JsonObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,8 +25,10 @@ public class LegacyOperationConsumer implements EventBusConsumer {
     }
 
     @Override
-    public void registerConsumer(EventBus eventBus) {
-        eventBus.consumer(getEventAddress(), this::handle);
+    @SuppressWarnings("unchecked")
+    public MessageConsumer<JsonObject> registerConsumer(EventBus eventBus) {
+        // Legacy consumer handles String messages; cast is safe for shutdown unregistration only.
+        return (MessageConsumer<JsonObject>) (MessageConsumer<?>) eventBus.consumer(getEventAddress(), this::handle);
     }
 
     public void handle(Message<String> message) {

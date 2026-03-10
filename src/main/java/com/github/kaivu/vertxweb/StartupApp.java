@@ -1,9 +1,12 @@
 package com.github.kaivu.vertxweb;
 
+import com.github.kaivu.vertxweb.config.AppModule;
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
 import com.github.kaivu.vertxweb.config.ConfigProvider;
 import com.github.kaivu.vertxweb.verticles.AppVerticle;
 import com.github.kaivu.vertxweb.verticles.WorkerVerticle;
+import com.google.inject.Guice;
+import com.google.inject.Injector;
 import io.vertx.core.DeploymentOptions;
 import io.vertx.core.Future;
 import io.vertx.core.ThreadingModel;
@@ -20,34 +23,45 @@ import org.slf4j.Logger;
  * Created by Khoa Vu.
  * Mail: kai.vu.dev@gmail.com
  * Date: 8/1/25
- * Time: 1:23 AM
+ * Time: 1:23 AM
  */
 public class StartupApp {
 
     private static final Logger log = org.slf4j.LoggerFactory.getLogger(StartupApp.class);
     private static Vertx vertx;
+    private static ApplicationConfig cachedConfig;
+    private static Injector sharedInjector;
     private static final List<String> deploymentIds = new ArrayList<>();
+
+    /**
+     * Returns the single Guice injector shared by AppVerticle and WorkerVerticle.
+     * Both verticles obtain their dependencies from this injector, ensuring that stateful
+     * singletons such as CircuitBreakerRegistry are shared and not duplicated per verticle.
+     */
+    public static Injector getInjector() {
+        return sharedInjector;
+    }
 
     public static void main(String[] args) {
         try {
-            // Load application configuration
-            ApplicationConfig config = ConfigProvider.createConfig();
+            // Load application configuration once and cache it for the process lifetime
+            cachedConfig = ConfigProvider.createConfig();
             log.info("Application configuration loaded successfully");
 
             // Setup graceful shutdown
             setupShutdownHook();
 
-            // Create Vertx instance with optimized options
-            VertxOptions vertxOptions = createVertxOptions(config);
+            // Create Vertx instance with tuned thread pool options
+            VertxOptions vertxOptions = createVertxOptions(cachedConfig);
             vertx = Vertx.vertx(vertxOptions);
             log.info("Vertx instance created with optimized configuration");
 
             // Deploy verticles with proper error handling
-            deployVerticles(config)
+            deployVerticles(cachedConfig)
                     .onSuccess(v -> {
                         log.info(
                                 "All verticles deployed successfully. Application started on port: {}",
-                                config.server().port());
+                                cachedConfig.server().port());
                     })
                     .onFailure(error -> {
                         log.error("Failed to deploy verticles. Shutting down application", error);
@@ -82,26 +96,28 @@ public class StartupApp {
     }
 
     private static Future<Void> deployVerticles(ApplicationConfig config) {
+        // Create the shared Guice injector once, before deploying any verticle.
+        // Both AppVerticle and WorkerVerticle retrieve their dependencies from this single
+        // injector via StartupApp.getInjector(), so CircuitBreakerRegistry state is shared.
+        sharedInjector = Guice.createInjector(new AppModule(vertx, config));
+        log.info("Shared Guice injector created");
+
         List<Future<?>> deploymentFutures = new ArrayList<>();
 
-        // Deploy multiple AppVerticle instances for load balancing
-        var deployment = config.deployment();
-        int appVerticleInstances = deployment.enableAppVerticleAutoSizing()
-                ? Math.max(
-                        deployment.minAppVerticleInstances(),
-                        Runtime.getRuntime().availableProcessors() / deployment.appVerticleInstanceDivisor())
-                : deployment.minAppVerticleInstances();
-        DeploymentOptions appOptions = new DeploymentOptions().setInstances(appVerticleInstances);
+        // Deploy exactly one AppVerticle instance.
+        // Horizontal scaling is handled externally by Kubernetes (one pod = one instance).
+        DeploymentOptions appOptions = new DeploymentOptions().setInstances(1);
 
         Future<String> appVerticleFuture = vertx.deployVerticle(AppVerticle.class.getName(), appOptions)
                 .onSuccess(id -> {
                     deploymentIds.add(id);
-                    log.info("AppVerticle deployed with {} instances, deployment ID: {}", appVerticleInstances, id);
+                    log.info("AppVerticle deployed (single instance), deployment ID: {}", id);
                 })
                 .onFailure(error -> log.error("Failed to deploy AppVerticle", error));
         deploymentFutures.add(appVerticleFuture);
 
         // Deploy WorkerVerticle with configured options
+        var deployment = config.deployment();
         DeploymentOptions workerOptions = new DeploymentOptions()
                 .setWorkerPoolSize(config.worker().poolSize())
                 .setMaxWorkerExecuteTime(config.worker().maxExecuteTime())
@@ -164,9 +180,9 @@ public class StartupApp {
         });
 
         try {
-            // Wait for graceful shutdown with configured timeout
-            ApplicationConfig config = ConfigProvider.createConfig();
-            int shutdownTimeout = config.deployment().shutdownTimeoutSeconds();
+            // Use cached config for shutdown timeout — no re-parsing
+            int shutdownTimeout =
+                    cachedConfig != null ? cachedConfig.deployment().shutdownTimeoutSeconds() : 30;
             if (!latch.await(shutdownTimeout, TimeUnit.SECONDS)) {
                 log.warn("Graceful shutdown timed out after {} seconds", shutdownTimeout);
             } else if (errorRef.get() == null) {

@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.github.kaivu.vertxweb.config.AppModule;
+import com.github.kaivu.vertxweb.config.ApplicationConfig;
+import com.github.kaivu.vertxweb.config.ConfigProvider;
 import com.github.kaivu.vertxweb.web.routes.RouterConfig;
 import com.google.inject.Guice;
 import io.vertx.core.Vertx;
@@ -276,7 +278,8 @@ class ObservabilityRoutesIntegrationTest {
             Map<String, String> originals = captureAndApply(overrides);
             Vertx vertx = Vertx.vertx();
             try {
-                Router router = Guice.createInjector(new AppModule(vertx))
+                ApplicationConfig appConfig = ConfigProvider.createConfig();
+                Router router = Guice.createInjector(new AppModule(vertx, appConfig))
                         .getInstance(RouterConfig.class)
                         .getRouter();
                 HttpServer server = vertx.createHttpServer()

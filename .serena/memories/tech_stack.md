@@ -1,38 +1,33 @@
 # Tech Stack
 
-## Core
-
-- **Language:** Java (implied 17+)
-- **Build System:** Gradle 9.0
-- **Main Framework:** Eclipse Vert.x 4.5.14
-  - `vertx-core`
-  - `vertx-web`
-- **Dependency Injection:** Google Guice 7.0.0
-
-## Reactive & Async
-
-- **Library:** SmallRye Mutiny 2.6.2
-- **Patterns:** Unis and Multis, avoiding callback hell.
+## Core Framework
+- **Language:** Java 17+
+- **Build:** Gradle 9.0
+- **HTTP / EventBus:** Eclipse Vert.x 4.5.14 (`vertx-core`, `vertx-web`)
+- **Reactive:** SmallRye Mutiny 2.6.2 (`Uni<T>` / `Multi<T>`)
+- **DI:** Google Guice 7.0.0
 
 ## Configuration
-
 - **Library:** SmallRye Config 3.13.4
-- **Format:** YAML (`application.yml`) & Environment Variables
-- **Features:** Type-safe, interface-based configuration mapping.
+- **Format:** YAML (`application.yml`) + Environment Variables
+- **Interface:** `@ConfigMapping(prefix = "app")` on `ApplicationConfig`
+- **Pattern:** Config loaded once in `StartupApp`, passed into `AppModule(Vertx, ApplicationConfig)` — never re-parsed inside the module
 
-## Development Tools
-
-- **Boilerplate Reduction:** Project Lombok 1.18.30 (approx, version variable in properties)
-- **Code Formatting:** Spotless Plugin 6.25.0 with Palantir Java Format.
-
-## Testing
-
-- **Framework:** JUnit 5 (Jupiter)
-- **Integration:** `vertx-junit5` extension
-- **Assertions:** (Likely standard JUnit or AssertJ, TBD)
+## Observability
+- **Metrics:** Micrometer 1.12.12 + Prometheus registry
+- **Tracing:** OpenTelemetry SDK 1.32.0 (W3C propagation; logging or OTLP exporter)
+- **Health:** Custom `ProbeOrchestrator` / `HealthCheckRegistry` with LIVENESS / READINESS / STARTUP check types
 
 ## Logging
-
 - **Facade:** SLF4J
-- **Implementation:** Logback Classic
-- **Features:** MDC support for request correlation.
+- **Implementation:** Logback Classic 1.5.13
+- **MDC:** `CorrelationContext.setupLoggingContext()` / `clearLoggingContext()`
+
+## Development Tools
+- **Boilerplate:** Project Lombok 1.18.32
+- **Formatting:** Spotless 6.25.0 + Palantir Java Format (enforced in CI via `spotlessCheck`)
+- **Testing:** JUnit 5 (5.9.1) + `vertx-junit5`
+- **Coverage:** JaCoCo 0.8.12 — 80% line coverage required on `UserService`, `ProductService`, `Validator`
+
+## Version Properties File
+`gradle.properties` — all library versions defined there; reference via `project.property('vertxVersion')` etc.

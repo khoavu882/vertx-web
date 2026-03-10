@@ -1,7 +1,7 @@
 package com.github.kaivu.vertxweb.web.rests;
 
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
-import com.github.kaivu.vertxweb.constants.*;
+import com.github.kaivu.vertxweb.constants.PathConstants;
 import com.github.kaivu.vertxweb.observability.metrics.MetricsScrapeEndpoint;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;

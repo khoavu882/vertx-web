@@ -1,7 +1,9 @@
 package com.github.kaivu.vertxweb.observability.health;
 
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
-import com.github.kaivu.vertxweb.constants.*;
+import com.github.kaivu.vertxweb.constants.HealthConstants;
+import com.github.kaivu.vertxweb.constants.JsonKeys;
+import com.github.kaivu.vertxweb.constants.OutcomeConstants;
 import com.github.kaivu.vertxweb.observability.metrics.MetricsFacade;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;

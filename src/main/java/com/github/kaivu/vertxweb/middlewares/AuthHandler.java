@@ -1,7 +1,10 @@
 package com.github.kaivu.vertxweb.middlewares;
 
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
-import com.github.kaivu.vertxweb.constants.*;
+import com.github.kaivu.vertxweb.constants.AuthConstants;
+import com.github.kaivu.vertxweb.constants.HttpConstants;
+import com.github.kaivu.vertxweb.constants.HttpStatusCodes;
+import com.github.kaivu.vertxweb.constants.PathConstants;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import io.vertx.core.http.HttpHeaders;

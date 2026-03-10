@@ -1,6 +1,7 @@
 package com.github.kaivu.vertxweb.config;
 
-import com.github.kaivu.vertxweb.constants.*;
+import com.github.kaivu.vertxweb.constants.EventBusConstants;
+import com.github.kaivu.vertxweb.constants.PathConstants;
 import io.smallrye.config.ConfigMapping;
 import io.smallrye.config.WithDefault;
 
@@ -233,6 +234,10 @@ public interface ApplicationConfig {
 
         @WithDefault(EventBusConstants.LEGACY_OPERATION)
         String legacyOperationAddress();
+
+        /** Reply timeout for EventBus request/reply calls in milliseconds. */
+        @WithDefault("10000")
+        long requestTimeoutMs();
     }
 
     interface ValidationConfig {
@@ -258,15 +263,6 @@ public interface ApplicationConfig {
 
         @WithDefault("5000")
         long warningExceptionTimeMs();
-
-        @WithDefault("true")
-        boolean enableAppVerticleAutoSizing();
-
-        @WithDefault("2")
-        int appVerticleInstanceDivisor();
-
-        @WithDefault("1")
-        int minAppVerticleInstances();
 
         @WithDefault("app-worker-pool")
         String workerPoolName();

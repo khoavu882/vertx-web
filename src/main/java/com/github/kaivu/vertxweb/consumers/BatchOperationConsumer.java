@@ -1,13 +1,17 @@
 package com.github.kaivu.vertxweb.consumers;
 
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
-import com.github.kaivu.vertxweb.constants.*;
+import com.github.kaivu.vertxweb.constants.HttpStatusCodes;
+import com.github.kaivu.vertxweb.constants.JsonKeys;
+import com.github.kaivu.vertxweb.constants.OutcomeConstants;
+import com.github.kaivu.vertxweb.constants.ProductConstants;
 import com.github.kaivu.vertxweb.observability.tracing.TracingService;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import com.google.inject.Inject;
 import io.opentelemetry.api.trace.Span;
 import io.vertx.core.eventbus.EventBus;
 import io.vertx.core.eventbus.Message;
+import io.vertx.core.eventbus.MessageConsumer;
 import io.vertx.core.json.JsonObject;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -35,8 +39,8 @@ public class BatchOperationConsumer implements EventBusConsumer {
     }
 
     @Override
-    public void registerConsumer(EventBus eventBus) {
-        eventBus.<JsonObject>consumer(getEventAddress(), this::handle);
+    public MessageConsumer<JsonObject> registerConsumer(EventBus eventBus) {
+        return eventBus.<JsonObject>consumer(getEventAddress(), this::handle);
     }
 
     public void handle(Message<JsonObject> message) {
