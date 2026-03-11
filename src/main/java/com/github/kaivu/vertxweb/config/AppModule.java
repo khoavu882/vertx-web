@@ -7,10 +7,15 @@ import com.github.kaivu.vertxweb.consumers.LegacyOperationConsumer;
 import com.github.kaivu.vertxweb.middlewares.AuthHandler;
 import com.github.kaivu.vertxweb.middlewares.ErrorHandler;
 import com.github.kaivu.vertxweb.middlewares.LoggingHandler;
+import com.github.kaivu.vertxweb.observability.health.DatabaseReadinessCheck;
 import com.github.kaivu.vertxweb.observability.health.DefaultHealthCheckRegistry;
 import com.github.kaivu.vertxweb.observability.health.DefaultProbeOrchestrator;
+import com.github.kaivu.vertxweb.observability.health.EventBusReadinessCheck;
+import com.github.kaivu.vertxweb.observability.health.HealthCheck;
 import com.github.kaivu.vertxweb.observability.health.HealthCheckRegistry;
 import com.github.kaivu.vertxweb.observability.health.ProbeOrchestrator;
+import com.github.kaivu.vertxweb.observability.health.ProcessLivenessCheck;
+import com.github.kaivu.vertxweb.observability.health.StartupCheck;
 import com.github.kaivu.vertxweb.observability.metrics.MetricsFacade;
 import com.github.kaivu.vertxweb.observability.metrics.MetricsScrapeEndpoint;
 import com.github.kaivu.vertxweb.observability.metrics.MicrometerMetricsFacade;
@@ -19,6 +24,7 @@ import com.github.kaivu.vertxweb.observability.tracing.TracingService;
 import com.github.kaivu.vertxweb.patterns.CircuitBreakerRegistry;
 import com.github.kaivu.vertxweb.repositories.ProductRepository;
 import com.github.kaivu.vertxweb.repositories.ProductRepositoryImpl;
+import com.github.kaivu.vertxweb.repositories.TransactionTemplate;
 import com.github.kaivu.vertxweb.services.ProductService;
 import com.github.kaivu.vertxweb.services.UserService;
 import com.github.kaivu.vertxweb.web.AppRouter;
@@ -36,6 +42,11 @@ import com.google.inject.Singleton;
 import com.google.inject.multibindings.Multibinder;
 import io.vertx.core.Vertx;
 import io.vertx.ext.web.Router;
+import io.vertx.mysqlclient.MySQLConnectOptions;
+import io.vertx.mysqlclient.MySQLPool;
+import io.vertx.sqlclient.PoolOptions;
+import java.util.concurrent.TimeUnit;
+import org.flywaydb.core.Flyway;
 
 /**
  * Google Guice module for dependency injection configuration.
@@ -49,6 +60,9 @@ import io.vertx.ext.web.Router;
  * <p>Domain routers are registered via {@link Multibinder} so that {@link RouterConfig} receives
  * a {@code Set<AppRouter>} and mounts them automatically. Adding a new domain requires only one
  * {@code addBinding()} line here — RouterConfig itself never needs to change.
+ *
+ * <p>Health checks follow the same Multibinder pattern — adding a new check requires only one
+ * {@code addBinding()} line; {@link DefaultHealthCheckRegistry} never changes.
  */
 public class AppModule extends AbstractModule {
     private final Vertx vertx;
@@ -71,6 +85,7 @@ public class AppModule extends AbstractModule {
 
         // Bind repositories
         bind(ProductRepository.class).to(ProductRepositoryImpl.class).in(Singleton.class);
+        bind(TransactionTemplate.class).in(Singleton.class);
 
         // Bind services
         bind(UserService.class).in(Singleton.class);
@@ -109,6 +124,15 @@ public class AppModule extends AbstractModule {
         domainRouters.addBinding().to(UserRouter.class).in(Singleton.class);
         domainRouters.addBinding().to(ProductRouter.class).in(Singleton.class);
 
+        // Register health checks via Multibinder.
+        // DefaultHealthCheckRegistry receives Set<HealthCheck> automatically.
+        // To add a new check: add one line here — nothing else changes.
+        Multibinder<HealthCheck> healthChecks = Multibinder.newSetBinder(binder(), HealthCheck.class);
+        healthChecks.addBinding().to(ProcessLivenessCheck.class).in(Singleton.class);
+        healthChecks.addBinding().to(EventBusReadinessCheck.class).in(Singleton.class);
+        healthChecks.addBinding().to(StartupCheck.class).in(Singleton.class);
+        healthChecks.addBinding().to(DatabaseReadinessCheck.class).in(Singleton.class);
+
         // Bind router configuration
         bind(RouterConfig.class).in(Singleton.class);
     }
@@ -121,6 +145,62 @@ public class AppModule extends AbstractModule {
     @Singleton
     Router provideMainRouter(Vertx vertx) {
         return Router.router(vertx);
+    }
+
+    /**
+     * Provides the reactive MariaDB connection pool.
+     *
+     * <p>This pool is event-loop safe — all queries run asynchronously without blocking.
+     * Close it in {@code StartupApp.shutdown()} after all verticles have undeployed.
+     *
+     * <p>Pool sizing notes:
+     * - {@code maxSize}: 5 connections is sufficient for K8s single-pod reactive workloads
+     * - {@code maxWaitQueueSize}: bounded to prevent memory growth under burst traffic
+     * - {@code connectionTimeoutMs}: short (3 s) so circuit breaker trips before a request hangs
+     * - {@code idleTimeoutMs}: 5 min, below typical cloud DB idle-kill interval (8 min)
+     */
+    @Provides
+    @Singleton
+    MySQLPool provideMySQLPool(Vertx vertx, ApplicationConfig config) {
+        ApplicationConfig.DatabaseConfig db = config.database();
+        ApplicationConfig.DatabaseConfig.PoolConfig pool = db.pool();
+
+        MySQLConnectOptions connectOptions = new MySQLConnectOptions()
+                .setHost(db.host())
+                .setPort(db.port())
+                .setDatabase(db.database())
+                .setUser(db.username())
+                .setPassword(db.password().orElse(""));
+
+        PoolOptions poolOptions = new PoolOptions()
+                .setMaxSize(pool.maxSize())
+                .setMaxWaitQueueSize(pool.maxWaitQueueSize())
+                .setConnectionTimeout(pool.connectionTimeoutMs())
+                .setConnectionTimeoutUnit(TimeUnit.MILLISECONDS)
+                .setIdleTimeout((int) pool.idleTimeoutMs())
+                .setIdleTimeoutUnit(TimeUnit.MILLISECONDS);
+
+        return MySQLPool.pool(vertx, connectOptions, poolOptions);
+    }
+
+    /**
+     * Provides a configured Flyway instance for schema migrations.
+     *
+     * <p>The Flyway JDBC connection is intentionally separate from the reactive pool —
+     * Flyway requires blocking JDBC and runs once at startup before the event loop starts.
+     * The MariaDB JDBC driver ({@code runtimeOnly} dependency) is used exclusively here.
+     */
+    @Provides
+    @Singleton
+    Flyway provideFlyway(ApplicationConfig config) {
+        ApplicationConfig.DatabaseConfig db = config.database();
+        String url = "jdbc:mariadb://" + db.host() + ":" + db.port() + "/" + db.database();
+        return Flyway.configure()
+                .dataSource(url, db.username(), db.password().orElse(""))
+                .locations("classpath:db/migration")
+                .loggers("slf4j")
+                .cleanDisabled(true)
+                .load();
     }
 
     @Provides

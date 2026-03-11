@@ -1,18 +1,20 @@
 package com.github.kaivu.vertxweb.services;
 
-import com.github.kaivu.vertxweb.config.ApplicationConfig;
 import com.github.kaivu.vertxweb.constants.HttpStatusCodes;
 import com.github.kaivu.vertxweb.context.CorrelationContext;
+import com.github.kaivu.vertxweb.domain.Product;
 import com.github.kaivu.vertxweb.patterns.CircuitBreakerRegistry;
 import com.github.kaivu.vertxweb.repositories.ProductRepository;
+import com.github.kaivu.vertxweb.repositories.exception.RepositoryConnectionException;
+import com.github.kaivu.vertxweb.repositories.exception.RepositoryNotFoundException;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import io.smallrye.mutiny.Uni;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
-import java.time.Duration;
-import java.util.concurrent.ThreadLocalRandom;
+import java.math.BigDecimal;
+import java.time.Instant;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -26,16 +28,11 @@ import org.slf4j.LoggerFactory;
 public class ProductService {
     private static final Logger log = LoggerFactory.getLogger(ProductService.class);
     private final ProductRepository productRepository;
-    private final ApplicationConfig appConfig;
     private final CircuitBreakerRegistry circuitBreakerRegistry;
 
     @Inject
-    public ProductService(
-            ProductRepository productRepository,
-            ApplicationConfig appConfig,
-            CircuitBreakerRegistry circuitBreakerRegistry) {
+    public ProductService(ProductRepository productRepository, CircuitBreakerRegistry circuitBreakerRegistry) {
         this.productRepository = productRepository;
-        this.appConfig = appConfig;
         this.circuitBreakerRegistry = circuitBreakerRegistry;
     }
 
@@ -93,30 +90,23 @@ public class ProductService {
                 .onItem()
                 .transform(productList -> {
                     JsonArray products = new JsonArray();
-                    productList.forEach(products::add);
+                    productList.stream().map(Product::toJsonObject).forEach(products::add);
                     return new JsonObject()
                             .put("products", products)
                             .put("total", products.size())
                             .put("timestamp", System.currentTimeMillis());
                 })
                 .onFailure()
-                .transform(throwable -> {
-                    if (throwable instanceof ServiceException) {
-                        return throwable;
-                    }
-                    log.error("Error fetching products", throwable);
-                    return new ServiceException("Failed to fetch products", HttpStatusCodes.INTERNAL_SERVER_ERROR);
-                });
+                .transform(this::mapRepositoryException);
     }
 
     private Uni<JsonObject> performGetProductById(String productId) {
-        return productRepository.findById(productId).onFailure().transform(throwable -> {
-            if (throwable instanceof ServiceException) {
-                return throwable;
-            }
-            log.error("Error fetching product by ID: {}", productId, throwable);
-            return new ServiceException("Failed to fetch product", HttpStatusCodes.INTERNAL_SERVER_ERROR);
-        });
+        return productRepository
+                .findById(productId)
+                .onItem()
+                .transform(Product::toJsonObject)
+                .onFailure()
+                .transform(this::mapRepositoryException);
     }
 
     public Uni<JsonObject> createProduct(JsonObject product) {
@@ -164,39 +154,21 @@ public class ProductService {
                 });
     }
 
-    private Uni<JsonObject> performCreateProduct(JsonObject product) {
-        return Uni.createFrom()
-                .item(product)
+    private Uni<JsonObject> performCreateProduct(JsonObject data) {
+        Product newProduct = Product.forCreate(
+                data.getString("name"),
+                data.getString("category"),
+                BigDecimal.valueOf(data.getDouble("price")),
+                data.getInteger("quantity", 0),
+                data.getBoolean("inStock", true));
+
+        return productRepository
+                .save(newProduct)
                 .onItem()
-                .delayIt()
-                .by(Duration.ofMillis(appConfig.service().productCreateBaseDelayMs()
-                        + ThreadLocalRandom.current()
-                                .nextInt(appConfig.service().productCreateMaxVarianceMs())))
-                .onItem()
-                .transform(productData -> {
-                    // Simulate database insert with generated ID
-                    int newId = ThreadLocalRandom.current()
-                            .nextInt(
-                                    appConfig.service().minIdRange(),
-                                    appConfig.service().maxIdRange());
-                    return new JsonObject()
-                            .put("id", newId)
-                            .put("name", productData.getString("name"))
-                            .put("category", productData.getString("category"))
-                            .put("price", productData.getDouble("price"))
-                            .put("description", productData.getString("description", ""))
-                            .put("inStock", true)
-                            .put("quantity", productData.getInteger("quantity", 0))
-                            .put("createdAt", java.time.Instant.now().toString());
-                })
+                .transform(saved ->
+                        saved.toJsonObject().put("createdAt", Instant.now().toString()))
                 .onFailure()
-                .transform(throwable -> {
-                    if (throwable instanceof ServiceException) {
-                        return throwable;
-                    }
-                    log.error("Error creating product", throwable);
-                    return new ServiceException("Failed to create product", HttpStatusCodes.INTERNAL_SERVER_ERROR);
-                });
+                .transform(this::mapRepositoryException);
     }
 
     public Uni<JsonObject> updateProductStock(String productId, int newQuantity) {
@@ -230,30 +202,7 @@ public class ProductService {
 
         return circuitBreakerRegistry
                 .getDatabaseCircuitBreaker()
-                .execute(() -> performGetProductById(productId)
-                        .onItem()
-                        .delayIt()
-                        .by(Duration.ofMillis(appConfig.service().baseDelayMs()
-                                + ThreadLocalRandom.current()
-                                        .nextInt(appConfig.service().baseDelayMs())))
-                        .onItem()
-                        .transform(existingProduct -> {
-                            JsonObject updatedProduct = existingProduct.copy();
-                            updatedProduct.put("quantity", newQuantity);
-                            updatedProduct.put("inStock", newQuantity > 0);
-                            updatedProduct.put(
-                                    "updatedAt", java.time.Instant.now().toString());
-                            return updatedProduct;
-                        })
-                        .onFailure()
-                        .transform(throwable -> {
-                            if (throwable instanceof ServiceException) {
-                                return throwable;
-                            }
-                            log.error("Error updating product stock: {}", productId, throwable);
-                            return new ServiceException(
-                                    "Failed to update product stock", HttpStatusCodes.INTERNAL_SERVER_ERROR);
-                        }))
+                .execute(() -> performUpdateProductStock(productId, newQuantity))
                 .onItem()
                 .invoke(result -> {
                     if (correlation != null) {
@@ -261,5 +210,40 @@ public class ProductService {
                                 log, "service_completed", "operation", "updateProductStock", "productId", productId);
                     }
                 });
+    }
+
+    private Uni<JsonObject> performUpdateProductStock(String productId, int newQuantity) {
+        return productRepository
+                .updateStock(productId, newQuantity)
+                .onItem()
+                .transform(updated ->
+                        updated.toJsonObject().put("updatedAt", Instant.now().toString()))
+                .onFailure()
+                .transform(this::mapRepositoryException);
+    }
+
+    /**
+     * Maps repository exceptions to service exceptions with appropriate HTTP status codes.
+     *
+     * <p>Mapping:
+     * <ul>
+     *   <li>{@link RepositoryNotFoundException} → 404 (circuit breaker does NOT count this)
+     *   <li>{@link RepositoryConnectionException} → 503 (circuit breaker counts this)
+     *   <li>{@link ServiceException} → passed through as-is
+     *   <li>Other → 500 (circuit breaker counts this)
+     * </ul>
+     */
+    private Throwable mapRepositoryException(Throwable throwable) {
+        if (throwable instanceof ServiceException) {
+            return throwable;
+        }
+        if (throwable instanceof RepositoryNotFoundException) {
+            return new ServiceException(throwable.getMessage(), HttpStatusCodes.NOT_FOUND);
+        }
+        if (throwable instanceof RepositoryConnectionException) {
+            return new ServiceException("Service temporarily unavailable", HttpStatusCodes.SERVICE_UNAVAILABLE);
+        }
+        log.error("Unexpected repository error", throwable);
+        return new ServiceException("Internal error", HttpStatusCodes.INTERNAL_SERVER_ERROR);
     }
 }

@@ -68,6 +68,57 @@ public interface ApplicationConfig {
      */
     ObservabilityConfig observability();
 
+    /**
+     * Database configuration section for MariaDB connection pool and Flyway.
+     */
+    DatabaseConfig database();
+
+    interface DatabaseConfig {
+        @WithDefault("localhost")
+        String host();
+
+        @WithDefault("3306")
+        int port();
+
+        @WithDefault("vertx_db")
+        String database();
+
+        @WithDefault("root")
+        String username();
+
+        /** Database password. Leave empty for local development; override via APP_DATABASE_PASSWORD. */
+        java.util.Optional<String> password();
+
+        PoolConfig pool();
+
+        interface PoolConfig {
+            /** Maximum number of connections in the reactive pool. */
+            @WithDefault("5")
+            int maxSize();
+
+            /**
+             * Maximum number of requests queued waiting for a connection.
+             * Computed as {@code maxSize * 4} by default; override explicitly if needed.
+             */
+            @WithDefault("20")
+            int maxWaitQueueSize();
+
+            /**
+             * Connection acquisition timeout in milliseconds.
+             * Kept short so the circuit breaker trips before a request hangs.
+             */
+            @WithDefault("3000")
+            int connectionTimeoutMs();
+
+            /**
+             * Idle connection timeout in milliseconds.
+             * Set below typical cloud DB idle-connection kill (5 min) to avoid surprises.
+             */
+            @WithDefault("300000")
+            long idleTimeoutMs();
+        }
+    }
+
     interface ServerConfig {
         @WithDefault("8080")
         int port();

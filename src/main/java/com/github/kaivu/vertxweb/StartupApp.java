@@ -12,11 +12,14 @@ import io.vertx.core.Future;
 import io.vertx.core.ThreadingModel;
 import io.vertx.core.Vertx;
 import io.vertx.core.VertxOptions;
+import io.vertx.mysqlclient.MySQLPool;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import org.flywaydb.core.Flyway;
+import org.flywaydb.core.api.FlywayException;
 import org.slf4j.Logger;
 
 /**
@@ -102,6 +105,17 @@ public class StartupApp {
         sharedInjector = Guice.createInjector(new AppModule(vertx, config));
         log.info("Shared Guice injector created");
 
+        // Run Flyway schema migrations synchronously before starting the event loop.
+        // Flyway is blocking JDBC — must run on the main thread, not on the event loop.
+        try {
+            Flyway flyway = sharedInjector.getInstance(Flyway.class);
+            int applied = flyway.migrate().migrationsExecuted;
+            log.info("Flyway migration completed: {} migration(s) applied", applied);
+        } catch (FlywayException e) {
+            log.error("Flyway migration failed — aborting startup", e);
+            return Future.failedFuture(e);
+        }
+
         List<Future<?>> deploymentFutures = new ArrayList<>();
 
         // Deploy exactly one AppVerticle instance.
@@ -167,15 +181,34 @@ public class StartupApp {
         }
 
         Future.all(undeployFutures).onComplete(ar -> {
-            // Close Vertx instance
-            vertx.close(closeResult -> {
-                if (closeResult.succeeded()) {
-                    log.info("Vertx instance closed successfully");
-                } else {
-                    log.error("Error closing Vertx instance", closeResult.cause());
-                    errorRef.set(closeResult.cause().getMessage());
+            // Close the reactive DB pool after all verticles have stopped.
+            // Must happen here — not in AppVerticle.stop() — because WorkerVerticle
+            // consumers may still have in-flight DB queries during verticle shutdown.
+            Future<?> poolClose = Future.succeededFuture();
+            if (sharedInjector != null) {
+                try {
+                    MySQLPool pool = sharedInjector.getInstance(MySQLPool.class);
+                    poolClose = pool.close().mapEmpty();
+                } catch (Exception e) {
+                    log.warn("Error closing database pool", e);
                 }
-                latch.countDown();
+            }
+            poolClose.onComplete(poolResult -> {
+                if (poolResult.failed()) {
+                    log.warn("Database pool did not close cleanly", poolResult.cause());
+                } else {
+                    log.info("Database pool closed");
+                }
+                // Close Vertx instance
+                vertx.close(closeResult -> {
+                    if (closeResult.succeeded()) {
+                        log.info("Vertx instance closed successfully");
+                    } else {
+                        log.error("Error closing Vertx instance", closeResult.cause());
+                        errorRef.set(closeResult.cause().getMessage());
+                    }
+                    latch.countDown();
+                });
             });
         });
 

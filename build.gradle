@@ -20,6 +20,8 @@ def logbackVersion = project.property('logbackVersion')
 def slf4jVersion = project.property('slf4jVersion')
 def micrometerVersion = project.property('micrometerVersion')
 def opentelemetryVersion = project.property('opentelemetryVersion')
+def flywayVersion = project.property('flywayVersion')
+def mariadbClientVersion = project.property('mariadbClientVersion')
 
 repositories {
     mavenCentral()
@@ -40,6 +42,13 @@ dependencies {
     implementation "io.opentelemetry:opentelemetry-sdk:${opentelemetryVersion}"
     implementation "io.opentelemetry:opentelemetry-exporter-logging:${opentelemetryVersion}"
     implementation "io.opentelemetry:opentelemetry-exporter-otlp:${opentelemetryVersion}"
+    // Reactive MySQL/MariaDB client (Vert.x native, event-loop safe)
+    implementation "io.vertx:vertx-mysql-client:${vertxVersion}"
+    // Schema migrations — runs blocking at startup before event loop, JDBC-only dependency
+    implementation "org.flywaydb:flyway-core:${flywayVersion}"
+    implementation "org.flywaydb:flyway-mysql:${flywayVersion}"
+    // MariaDB JDBC driver — used exclusively by Flyway, NOT by vertx-mysql-client at runtime
+    runtimeOnly "org.mariadb.jdbc:mariadb-java-client:${mariadbClientVersion}"
     compileOnly "org.projectlombok:lombok:${lombokVersion}"
     annotationProcessor "org.projectlombok:lombok:${lombokVersion}"
     testImplementation "io.vertx:vertx-junit5:${vertxVersion}"

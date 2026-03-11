@@ -82,6 +82,20 @@ app:
     worker-pool-name: app-worker-pool
     shutdown-timeout-seconds: 30
 
+  database:
+    host: localhost
+    port: 3306
+    database: vertx_db
+    username: root
+    # password: not set — override via APP_DATABASE_PASSWORD for non-local environments
+    pool:
+      max-size: 5
+      max-wait-queue-size: 20
+      # Connection timeout short so circuit breaker trips before request hangs
+      connection-timeout-ms: 3000
+      # Below typical cloud DB idle kill (8 min) to avoid unexpected disconnections
+      idle-timeout-ms: 300000
+
   observability:
     health:
       enable: true

@@ -6,14 +6,16 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.github.kaivu.vertxweb.config.ApplicationConfig;
 import com.github.kaivu.vertxweb.config.ConfigProvider;
 import com.github.kaivu.vertxweb.constants.HttpStatusCodes;
+import com.github.kaivu.vertxweb.domain.Product;
 import com.github.kaivu.vertxweb.observability.metrics.NoopMetricsFacade;
 import com.github.kaivu.vertxweb.patterns.CircuitBreaker;
 import com.github.kaivu.vertxweb.patterns.CircuitBreakerRegistry;
 import com.github.kaivu.vertxweb.repositories.ProductRepository;
+import com.github.kaivu.vertxweb.repositories.exception.RepositoryNotFoundException;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import io.smallrye.mutiny.Uni;
 import io.vertx.core.Vertx;
-import io.vertx.core.json.JsonObject;
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -26,14 +28,32 @@ class ProductServiceCircuitBreakerTest {
     void shouldOpenCircuitAfterConsecutiveServerFailures() throws Exception {
         try (TestFixture fixture = TestFixture.start(new ProductRepository() {
             @Override
-            public Uni<JsonObject> findById(String productId) {
-                return Uni.createFrom().item(new JsonObject().put("productId", productId));
+            public Uni<Product> findById(String productId) {
+                return Uni.createFrom().item(new Product(productId, "Test", "Cat", BigDecimal.ONE, 1, true, null));
             }
 
             @Override
-            public Uni<List<JsonObject>> findAll() {
+            public Uni<List<Product>> findAll() {
                 return Uni.createFrom()
                         .failure(new ServiceException("Repository unavailable", HttpStatusCodes.INTERNAL_SERVER_ERROR));
+            }
+
+            @Override
+            public Uni<Product> save(Product product) {
+                return Uni.createFrom()
+                        .failure(new ServiceException("Not supported", HttpStatusCodes.INTERNAL_SERVER_ERROR));
+            }
+
+            @Override
+            public Uni<Product> updateStock(String productId, int quantity) {
+                return Uni.createFrom()
+                        .failure(new ServiceException("Not supported", HttpStatusCodes.INTERNAL_SERVER_ERROR));
+            }
+
+            @Override
+            public Uni<Boolean> delete(String productId) {
+                return Uni.createFrom()
+                        .failure(new ServiceException("Not supported", HttpStatusCodes.INTERNAL_SERVER_ERROR));
             }
         })) {
             for (int i = 0; i < 5; i++) {
@@ -55,13 +75,31 @@ class ProductServiceCircuitBreakerTest {
     void shouldKeepCircuitClosedForClientFailures() throws Exception {
         try (TestFixture fixture = TestFixture.start(new ProductRepository() {
             @Override
-            public Uni<JsonObject> findById(String productId) {
-                return Uni.createFrom().failure(new ServiceException("Product not found", HttpStatusCodes.NOT_FOUND));
+            public Uni<Product> findById(String productId) {
+                return Uni.createFrom().failure(new RepositoryNotFoundException("Product not found: " + productId));
             }
 
             @Override
-            public Uni<List<JsonObject>> findAll() {
+            public Uni<List<Product>> findAll() {
                 return Uni.createFrom().item(List.of());
+            }
+
+            @Override
+            public Uni<Product> save(Product product) {
+                return Uni.createFrom()
+                        .failure(new ServiceException("Not supported", HttpStatusCodes.INTERNAL_SERVER_ERROR));
+            }
+
+            @Override
+            public Uni<Product> updateStock(String productId, int quantity) {
+                return Uni.createFrom()
+                        .failure(new ServiceException("Not supported", HttpStatusCodes.INTERNAL_SERVER_ERROR));
+            }
+
+            @Override
+            public Uni<Boolean> delete(String productId) {
+                return Uni.createFrom()
+                        .failure(new ServiceException("Not supported", HttpStatusCodes.INTERNAL_SERVER_ERROR));
             }
         })) {
             for (int i = 0; i < 8; i++) {
@@ -96,7 +134,7 @@ class ProductServiceCircuitBreakerTest {
             ApplicationConfig appConfig = ConfigProvider.createConfig();
             CircuitBreakerRegistry circuitBreakerRegistry =
                     new CircuitBreakerRegistry(vertx, appConfig, new NoopMetricsFacade());
-            ProductService productService = new ProductService(productRepository, appConfig, circuitBreakerRegistry);
+            ProductService productService = new ProductService(productRepository, circuitBreakerRegistry);
             return new TestFixture(vertx, productService, circuitBreakerRegistry);
         }
 

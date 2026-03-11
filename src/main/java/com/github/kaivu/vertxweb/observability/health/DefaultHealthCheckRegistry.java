@@ -3,17 +3,24 @@ package com.github.kaivu.vertxweb.observability.health;
 import com.google.inject.Inject;
 import com.google.inject.Singleton;
 import java.util.List;
+import java.util.Set;
 
+/**
+ * Default registry backed by a Guice {@code Multibinder<HealthCheck>} set.
+ *
+ * <p>Adding a new check requires only one line in {@code AppModule} — this class never changes:
+ * <pre>{@code
+ * healthChecks.addBinding().to(MyNewCheck.class).in(Singleton.class);
+ * }</pre>
+ */
 @Singleton
 public class DefaultHealthCheckRegistry implements HealthCheckRegistry {
-    private final List<HealthCheck> checks;
+
+    private final Set<HealthCheck> checks;
 
     @Inject
-    public DefaultHealthCheckRegistry(
-            ProcessLivenessCheck processLivenessCheck,
-            EventBusReadinessCheck eventBusReadinessCheck,
-            StartupCheck startupCheck) {
-        this.checks = List.of(processLivenessCheck, eventBusReadinessCheck, startupCheck);
+    public DefaultHealthCheckRegistry(Set<HealthCheck> checks) {
+        this.checks = checks;
     }
 
     @Override

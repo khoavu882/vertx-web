@@ -9,18 +9,23 @@ import com.github.kaivu.vertxweb.config.ApplicationConfig;
 import com.github.kaivu.vertxweb.config.ConfigProvider;
 import com.github.kaivu.vertxweb.constants.HttpStatusCodes;
 import com.github.kaivu.vertxweb.constants.JsonKeys;
+import com.github.kaivu.vertxweb.domain.Product;
 import com.github.kaivu.vertxweb.observability.metrics.NoopMetricsFacade;
 import com.github.kaivu.vertxweb.patterns.CircuitBreakerRegistry;
 import com.github.kaivu.vertxweb.repositories.ProductRepository;
+import com.github.kaivu.vertxweb.repositories.exception.RepositoryNotFoundException;
 import com.github.kaivu.vertxweb.web.exceptions.ServiceException;
 import io.smallrye.mutiny.Uni;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
+import java.math.BigDecimal;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
@@ -43,7 +48,7 @@ class ProductServiceTest {
             ServiceException failure =
                     assertThrows(ServiceException.class, () -> await(fixture.productService.getProductById("999")));
             assertEquals(HttpStatusCodes.NOT_FOUND, failure.getStatusCode());
-            assertEquals("Product not found", failure.getMessage());
+            assertTrue(failure.getMessage().contains("Product not found"));
         }
     }
 
@@ -100,7 +105,6 @@ class ProductServiceTest {
                     .put("name", "Laptop")
                     .put("category", "Electronics")
                     .put("price", 1599.0)
-                    .put("description", "16-inch")
                     .put("quantity", 10);
 
             JsonObject result = await(fixture.productService.createProduct(payload));
@@ -108,10 +112,9 @@ class ProductServiceTest {
             assertEquals("Laptop", result.getString("name"));
             assertEquals("Electronics", result.getString("category"));
             assertEquals(1599.0, result.getDouble("price"));
-            assertEquals("16-inch", result.getString("description"));
             assertEquals(10, result.getInteger("quantity"));
             assertTrue(result.getBoolean("inStock"));
-            assertTrue(result.containsKey("id"));
+            assertTrue(result.containsKey("productId"));
             assertTrue(result.containsKey("createdAt"));
         }
     }
@@ -175,8 +178,7 @@ class ProductServiceTest {
             ApplicationConfig appConfig = ConfigProvider.createConfig();
             CircuitBreakerRegistry circuitBreakerRegistry =
                     new CircuitBreakerRegistry(vertx, appConfig, new NoopMetricsFacade());
-            ProductService productService =
-                    new ProductService(new InMemoryProductRepository(), appConfig, circuitBreakerRegistry);
+            ProductService productService = new ProductService(new InMemoryProductRepository(), circuitBreakerRegistry);
             return new TestFixture(vertx, productService, originals, overrides.keySet());
         }
 
@@ -213,29 +215,48 @@ class ProductServiceTest {
 
     private static final class InMemoryProductRepository implements ProductRepository {
         @Override
-        public Uni<JsonObject> findById(String productId) {
+        public Uni<Product> findById(String productId) {
             return switch (productId) {
                 case "1" -> Uni.createFrom()
-                        .item(new JsonObject()
-                                .put("productId", "1")
-                                .put("name", "Widget")
-                                .put("quantity", 15));
+                        .item(new Product("1", "Widget", "Hardware", BigDecimal.valueOf(9.99), 15, true, null));
                 case "2" -> Uni.createFrom()
-                        .item(new JsonObject()
-                                .put("productId", "2")
-                                .put("name", "Phone")
-                                .put("quantity", 9));
-                default -> Uni.createFrom()
-                        .failure(new ServiceException("Product not found", HttpStatusCodes.NOT_FOUND));
+                        .item(new Product("2", "Phone", "Electronics", BigDecimal.valueOf(299.99), 9, true, null));
+                default -> Uni.createFrom().failure(new RepositoryNotFoundException("Product not found: " + productId));
             };
         }
 
         @Override
-        public Uni<List<JsonObject>> findAll() {
+        public Uni<List<Product>> findAll() {
             return Uni.createFrom()
                     .item(List.of(
-                            new JsonObject().put("productId", "1").put("name", "Widget"),
-                            new JsonObject().put("productId", "2").put("name", "Phone")));
+                            new Product("1", "Widget", "Hardware", BigDecimal.valueOf(9.99), 15, true, null),
+                            new Product("2", "Phone", "Electronics", BigDecimal.valueOf(299.99), 9, true, null)));
+        }
+
+        @Override
+        public Uni<Product> save(Product product) {
+            Product saved = new Product(
+                    UUID.randomUUID().toString(),
+                    product.name(),
+                    product.category(),
+                    product.price(),
+                    product.quantity(),
+                    product.inStock(),
+                    LocalDateTime.now());
+            return Uni.createFrom().item(saved);
+        }
+
+        @Override
+        public Uni<Product> updateStock(String productId, int quantity) {
+            return findById(productId)
+                    .onItem()
+                    .transform(p -> new Product(
+                            p.productId(), p.name(), p.category(), p.price(), quantity, quantity > 0, p.createdAt()));
+        }
+
+        @Override
+        public Uni<Boolean> delete(String productId) {
+            return findById(productId).onItem().transform(ignored -> true);
         }
     }
 }
